@@ -130,7 +130,9 @@ public:
     bool getBasicBlocks(const std::string& name, std::vector<basicBlock>&);
     bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter);
     bool parseDisassembly(const std::string& text);
-    void mapDisassemblyToSource(const char *elfFilePath);
+    void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);
+    static void dumpDwarfInfo(const char *elfFilePath, llvm::MemoryBuffer *pVal);
+    static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData );
 private:
     parse_mode getLineType(std::string& line);

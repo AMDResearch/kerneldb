@@ -189,6 +189,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         CHECK_COMGR(amd_comgr_release_data(executable));
         std::cout << strDisassembly << std::endl;
         parseDisassembly(strDisassembly);
+        mapDisassemblyToSource(agent, name.c_str());
     }
     return bReturn;
 }
@@ -319,67 +320,150 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
 using namespace llvm;
 using namespace llvm::object;
 
-void kernelDB::mapDisassemblyToSource(const char *elfFilePath) {
+amd_comgr_code_object_info_t kernelDB::getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits)
+{
+    amd_comgr_data_t executable, bundle;
+    std::vector<std::string> isas = getIsaList(agent);
+    CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
+    CHECK_COMGR(amd_comgr_set_data(bundle, bits.size(), reinterpret_cast<const char *>(bits.data())));
+    if (isas.size())
+    {
+        std::vector<amd_comgr_code_object_info_t> ql;
+        for (int i = 0; i < isas.size(); i++)
+            ql.push_back({isas[i].c_str(),0,0});
+        //for(auto co : ql)
+        //    std::cerr << "{" << co.isa << "," << co.size << "," << co.offset << "}" << std::endl;
+        //std::cerr << "query list size: " << ql.size() << std::endl;
+        CHECK_COMGR(amd_comgr_lookup_code_object(bundle,static_cast<amd_comgr_code_object_info_t *>(ql.data()), ql.size()));
+        for (auto co : ql)
+        {
+            //std::cerr << "After query: " << std::endl;
+            //std::cerr << "{" << co.isa << "," << co.size << "," << co.offset << "}" << std::endl;
+            /* Use the first code object that is ISA-compatible with this agent */
+            if (co.size != 0)
+            {
+                CHECK_COMGR(amd_comgr_release_data(bundle));
+                return co;
+            }
+        }   
+    }
+    CHECK_COMGR(amd_comgr_release_data(bundle));
+    return {0,0,0};
+}
+
+void kernelDB::dumpDwarfInfo(const char *elfFilePath, llvm::MemoryBuffer *pVal)
+{
+    if (pVal)
+    {
+        auto ObjOrErr = ObjectFile::createObjectFile(pVal->getMemBufferRef());
+        if (!ObjOrErr) {
+            errs() << "Error parsing ELF file: " << elfFilePath << "\n";
+            return;
+        }
+
+        auto *Obj = ObjOrErr->get();
+        auto ELF = dyn_cast<ELFObjectFileBase>(Obj);
+        if (!ELF) {
+            errs() << "File is not an ELF file.\n";
+            return;
+        }
+
+        // Create DWARF context
+        auto DICtx = DWARFContext::create(*ELF);
+
+        // Iterate over compilation units
+        for (const auto &CU : DICtx->compile_units()) {
+            if (!CU)
+                continue;
+
+            // Get the line table
+            const auto &LineTable = DICtx->getLineTableForUnit(CU.get());
+
+            if (!LineTable)
+                continue;
+
+            // Print source line mappings
+            errs() << "Source line mappings for CU:\n";
+            LineTable->dump(errs(), DIDumpOptions::getForSingleDIE());
+
+            // Iterate over address mappings
+            for (const auto &Row : LineTable->Rows) {
+                errs() << "Address: " << format_hex(Row.Address.Address, 10)
+                       << " -> File: " << Row.File << ", Line: " << Row.Line
+                       << "\n";
+            }
+        }
+    }
+}
+
+void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
 
     std::string strFile(elfFilePath);
     std::unique_ptr<MemoryBuffer> pBuff;
-    MemoryBuffer *pVal;
+    MemoryBuffer *pVal = NULL;
     if (!strFile.ends_with(".hsaco"))
     {
         std::vector<uint8_t> bits;
         getElfSectionBits(strFile, std::string(".hip_fatbin"), bits);
-        llvm::StringRef ref(reinterpret_cast<char *>(bits.data()), bits.size());
-        pBuff = MemoryBuffer::getMemBuffer(ref);
-        pVal = pBuff.get();
+        amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
+        if (info.size)
+        {
+            llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
+            pBuff = MemoryBuffer::getMemBuffer(ref);
+            dumpDwarfInfo(elfFilePath, pBuff.get());
+        }
     }
     else
     {
-        // Open ELF file
+        // Open HSACO file
         auto FileOrErr = MemoryBuffer::getFile(elfFilePath);
         if (!FileOrErr) {
             errs() << "Error reading file: " << elfFilePath << "\n";
             return;
         }
         else
-            pVal = FileOrErr->get();
+            dumpDwarfInfo(elfFilePath, FileOrErr->get());
     }
     //auto ObjOrErr = ObjectFile::createObjectFile(FileOrErr->get()->getMemBufferRef());
-    auto ObjOrErr = ObjectFile::createObjectFile(pVal->getMemBufferRef());
-    if (!ObjOrErr) {
-        errs() << "Error parsing ELF file: " << elfFilePath << "\n";
-        return;
-    }
+    if (pVal)
+    {
+        auto ObjOrErr = ObjectFile::createObjectFile(pVal->getMemBufferRef());
+        if (!ObjOrErr) {
+            errs() << "Error parsing ELF file: " << elfFilePath << "\n";
+            return;
+        }
 
-    auto *Obj = ObjOrErr->get();
-    auto ELF = dyn_cast<ELFObjectFileBase>(Obj);
-    if (!ELF) {
-        errs() << "File is not an ELF file.\n";
-        return;
-    }
+        auto *Obj = ObjOrErr->get();
+        auto ELF = dyn_cast<ELFObjectFileBase>(Obj);
+        if (!ELF) {
+            errs() << "File is not an ELF file.\n";
+            return;
+        }
 
-    // Create DWARF context
-    auto DICtx = DWARFContext::create(*ELF);
+        // Create DWARF context
+        auto DICtx = DWARFContext::create(*ELF);
 
-    // Iterate over compilation units
-    for (const auto &CU : DICtx->compile_units()) {
-        if (!CU)
-            continue;
+        // Iterate over compilation units
+        for (const auto &CU : DICtx->compile_units()) {
+            if (!CU)
+                continue;
 
-        // Get the line table
-        const auto &LineTable = DICtx->getLineTableForUnit(CU.get());
+            // Get the line table
+            const auto &LineTable = DICtx->getLineTableForUnit(CU.get());
 
-        if (!LineTable)
-            continue;
+            if (!LineTable)
+                continue;
 
-        // Print source line mappings
-        errs() << "Source line mappings for CU:\n";
-        LineTable->dump(errs(), DIDumpOptions::getForSingleDIE());
+            // Print source line mappings
+            errs() << "Source line mappings for CU:\n";
+            LineTable->dump(errs(), DIDumpOptions::getForSingleDIE());
 
-        // Iterate over address mappings
-        for (const auto &Row : LineTable->Rows) {
-            errs() << "Address: " << format_hex(Row.Address.Address, 10)
-                   << " -> File: " << Row.File << ", Line: " << Row.Line
-                   << "\n";
+            // Iterate over address mappings
+            for (const auto &Row : LineTable->Rows) {
+                errs() << "Address: " << format_hex(Row.Address.Address, 10)
+                       << " -> File: " << Row.File << ", Line: " << Row.Line
+                       << "\n";
+            }
         }
     }
 }
