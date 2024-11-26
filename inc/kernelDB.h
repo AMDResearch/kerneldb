@@ -87,6 +87,7 @@ typedef struct instruction_s{
     std::string inst_;
     std::vector<std::string> operands_;
     std::string disassembly_;
+    uint64_t address_;
 }instruction_t;
 
 
@@ -112,14 +113,17 @@ private:
 
 class __attribute__((visibility("default"))) CDNAKernel {
 public:
-    CDNAKernel(const std::string& name, const std::string& disassembly);
+    CDNAKernel(const std::string& name);
     ~CDNAKernel() = default;
-    size_t addBlock(const basicBlock& block);
+    size_t addBlock(std::unique_ptr<basicBlock> block);
     size_t getBlockCount() { return blocks_.size();}
+    std::string getName() { return name_;}
+    const std::vector<instruction_t>& getInstructionsForLine(uint64_t);
 private:
     std::string name_;
     std::string disassembly_;
-    std::vector<basicBlock> blocks_;
+    std::vector<std::unique_ptr<basicBlock>> blocks_;
+    std::map<uint64_t, std::vector<instruction_t>> line_map_;
 };
 
 class __attribute__((visibility("default"))) kernelDB {
@@ -128,9 +132,11 @@ public:
     kernelDB(hsa_agent_t agent, std::vector<uint8_t> bits);
     ~kernelDB();
     bool getBasicBlocks(const std::string& name, std::vector<basicBlock>&);
+    const CDNAKernel& getKernel(const std::string& name);
     bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter);
     bool parseDisassembly(const std::string& text);
     void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);
+    void addKernel(std::unique_ptr<CDNAKernel> kernel);
     static void dumpDwarfInfo(const char *elfFilePath, llvm::MemoryBuffer *pVal);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData );
@@ -138,7 +144,7 @@ private:
     parse_mode getLineType(std::string& line);
     static bool isBranch(const std::string& instruction);
 private:
-    std::map<std::string, CDNAKernel> kernels_;
+    std::map<std::string, std::unique_ptr<CDNAKernel>> kernels_;
     amd_comgr_data_t executable_;
     hsa_agent_t agent_;
     std::string fileName_;

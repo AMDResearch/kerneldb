@@ -39,7 +39,7 @@ namespace kernelDB {
 
 
 static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbranch_scc0", "s_cbranch_scc1", "s_cbranch_vccz", "s_cbranch_vccnz", "s_cbranch_execz", "s_cbranch_execnz",
-    "s_setpc_b64", "s_call_b64","s_return_b64"};
+    "s_setpc_b64", "s_call_b64", "s_return_b64", "s_trap", "s_endpgm"};
 
 std::string getExecutablePath() {
     char result[PATH_MAX];
@@ -97,12 +97,43 @@ kernelDB::kernelDB(hsa_agent_t agent, std::vector<uint8_t> bits)
 
 kernelDB::~kernelDB()
 {
-   std::cout << "Ending kernelDB\n"; 
+   std::cout << "Ending kernelDB\n";
+   std::cout << "Found " << kernels_.size() << " kernels.\n";
+   auto it = kernels_.begin();
+   while(it != kernels_.end())
+   {
+       it++;
+   }
+}
+    
+const CDNAKernel& kernelDB::getKernel(const std::string& name)
+{
+    auto it = kernels_.find(name);
+    if (it != kernels_.end())
+    {
+        return *(it->second.get());
+    }
+    else
+        throw std::runtime_error(name + " kernel does not exist.");
 }
 
 bool kernelDB::getBasicBlocks(const std::string& kernel, std::vector<basicBlock>&)
 {
     return true;
+}
+    
+void kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
+{
+    std::string strName = kernel.get()->getName();
+    if (kernels_.find(strName) == kernels_.end())
+    {
+        kernels_[strName] = std::move(kernel);
+    }
+    else
+    {
+        std::cout << "You're adding kernel \"" << strName << "\" which we've seen before. Something is wrong." << std::endl;
+        abort();
+    }
 }
 
 bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter)
@@ -187,7 +218,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         //CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
         CHECK_COMGR(amd_comgr_release_data(dataOutput));
         CHECK_COMGR(amd_comgr_release_data(executable));
-        std::cout << strDisassembly << std::endl;
+        //std::cout << strDisassembly << std::endl;
         parseDisassembly(strDisassembly);
         mapDisassemblyToSource(agent, name.c_str());
     }
@@ -223,7 +254,10 @@ bool kernelDB::parseDisassembly(const std::string& text)
     parse_mode mode = BEGIN;
     std::string strKernel;
     uint16_t block_count = 0;
-    basicBlock block;
+    std::unique_ptr<CDNAKernel> kernel;
+    CDNAKernel *current_kernel = nullptr;
+    std::unique_ptr<basicBlock> block;
+    basicBlock *current_block = nullptr;
     while(std::getline(in,line))
     {
         std::vector<std::string> tokens;
@@ -238,6 +272,9 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 break;
             case KERNEL:
                 strKernel = line.substr(0, line.length() - 1);
+                kernel = std::make_unique<CDNAKernel>(strKernel);
+                current_kernel = kernel.get();
+                addKernel(std::move(kernel));
                 mode=BBLOCK;
                 block_count++;
                 break;
@@ -245,9 +282,25 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 split(line, tokens, " ", false);
                 if (tokens.size())
                 {
+                    if (!current_block)
+                    {
+                        block = std::make_unique<basicBlock>();
+                        current_block = block.get();
+                    }
                     trim(tokens[0]);
                     if (isBranch(tokens[0]))
+                    {
                         block_count++;
+                        if (current_kernel)
+                            current_kernel->addBlock(std::move(block));
+                        else
+                        {
+                            std::cout << "Disassembly parsing error. Processing a branch instruction when there's not a kernel currently defined.\n";
+                            abort();
+                        }
+                        current_block = nullptr;
+                        continue;
+                    }
                     std::vector<std::string> inst_tokens;
                     instruction_t inst;
                     split(tokens[0], inst_tokens, "_", false);
@@ -256,15 +309,24 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         inst.prefix_ = inst_tokens[0];
                         inst.type_ = inst_tokens[1];
                         inst.size_ = inst_tokens[2];
+                        inst.inst_ = tokens[0];
                         inst.disassembly_ = line;
                         for (size_t i = 3; i < inst_tokens.size(); i++)
                             inst.operands_.push_back(inst_tokens[i]);
-                        block.addInstruction(inst);
+                        size_t i = 1;
+                        while (tokens[i] != "//")
+                            i++;
+                        std::string strAddress = tokens[++i];
+                        // remove the ending colon
+                        strAddress.pop_back();
+                        inst.address_ = std::stoull(strAddress, nullptr, 16);
+                        current_block->addInstruction(inst);
                     }
                 }
                 break;
             case BRANCH:
                 block_count++;
+                current_block = nullptr;
                 break;
             default:
                 break;
@@ -481,16 +543,29 @@ void basicBlock::addInstruction(const instruction_t& instruction)
         counts_[instruction.inst_] = 1;
 }
 
-CDNAKernel::CDNAKernel(const std::string& name, const std::string& disassembly)
+CDNAKernel::CDNAKernel(const std::string& name)
 {
     name_ = name;
-    disassembly_ = disassembly;
 }
 
-size_t CDNAKernel::addBlock(const basicBlock& block)
+size_t CDNAKernel::addBlock(std::unique_ptr<basicBlock> block)
 {
-    blocks_.push_back(block);
+    blocks_.push_back(std::move(block));
     return blocks_.size();
+}
+
+const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint64_t line)
+{
+    auto it = line_map_.find(line);
+    if (it != line_map_.end())
+    {
+        return it->second;
+    }
+    else
+    {
+        std::cerr << "Line number " << line << " is not valid for kernel " << name_ << std::endl;
+        throw std::runtime_error("Invalid line number in CDNAKernel::getInstructionForLine.");
+    } 
 }
 
 }//kernelDB
