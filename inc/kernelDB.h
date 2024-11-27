@@ -88,6 +88,9 @@ typedef struct instruction_s{
     std::vector<std::string> operands_;
     std::string disassembly_;
     uint64_t address_;
+    uint32_t line_;
+    uint32_t column_;
+    size_t path_id_;
 }instruction_t;
 
 
@@ -106,6 +109,7 @@ public:
     void addInstruction(const instruction_t& instruction);
     const std::vector<instruction_t>& getInstructions(){return instructions_;}
 private:
+private:
     uint16_t block_id;
     std::string disassembly_;
     std::vector<instruction_t> instructions_;
@@ -122,11 +126,15 @@ public:
     const std::vector<std::unique_ptr<basicBlock>>& getBasicBlocks() {return blocks_;}
     const std::vector<instruction_t>& getInstructionsForLine(uint64_t);
     void addInstructionForLine(uint64_t, const instruction_t& instruction);
+    void addLine(uint32_t line, const instruction_t& instruction);
+    size_t addFileName(const std::string& name);
 private:
     std::string name_;
     std::string disassembly_;
     std::vector<std::unique_ptr<basicBlock>> blocks_;
-    std::map<uint64_t, std::vector<instruction_t>> line_map_;
+    std::map<uint32_t, std::vector<instruction_t>> line_map_;
+    std::map<std::string, size_t> file_map_;
+    std::vector<std::string> file_names_;
 };
 
 class __attribute__((visibility("default"))) kernelDB {

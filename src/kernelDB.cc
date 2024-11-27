@@ -520,11 +520,20 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                 for (const auto& block : blocks)
                 {
                     const auto& instructions = block.get()->getInstructions();
-                    for(auto instruction : instructions)
+                    for(auto& instruction : instructions)
                     {
                         DILineInfo info;
                         bool bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},"", 
                             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
+                        if (bSuccess)
+                        {
+                            instruction_t inst = instruction;
+                            inst.line_ = info.Line;
+                            inst.column_ = info.Column;
+                            //addFileName returns a 1-based index. 
+                            inst.path_id_ = it->second.get()->addFileName(info.FileName) - 1;
+                            it->second.get()->addLine(info.Line, inst);
+                        }
                         std::cout << "Called getFileLineInfoForAddress\n";
                     }
                 }
@@ -536,7 +545,6 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
 }
 
 void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
-
     std::string strFile(elfFilePath);
     std::unique_ptr<MemoryBuffer> pBuff;
     MemoryBuffer *pVal = NULL;
@@ -605,6 +613,31 @@ const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint64_t li
         std::cerr << "Line number " << line << " is not valid for kernel " << name_ << std::endl;
         throw std::runtime_error("Invalid line number in CDNAKernel::getInstructionForLine.");
     } 
+}
+    
+void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
+{
+    auto it = line_map_.find(line);
+    if (it != line_map_.end())
+        it->second.push_back(instruction);
+    else
+        line_map_[line] = {instruction};
+}
+    
+// 1-based index so that 0 indicates an error
+size_t CDNAKernel::addFileName(const std::string& name)
+{
+    size_t result = 0;
+    auto it = file_map_.find(name);
+    if (it == file_map_.end())
+    {
+        file_names_.push_back(name);
+        result = file_names_.size();
+        file_map_[name] = result;
+    }
+    else
+        result = it->second;
+    return result;
 }
     
 void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instruction)
