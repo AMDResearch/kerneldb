@@ -104,6 +104,7 @@ public:
     basicBlock();
     ~basicBlock() = default;
     void addInstruction(const instruction_t& instruction);
+    const std::vector<instruction_t>& getInstructions(){return instructions_;}
 private:
     uint16_t block_id;
     std::string disassembly_;
@@ -118,7 +119,9 @@ public:
     size_t addBlock(std::unique_ptr<basicBlock> block);
     size_t getBlockCount() { return blocks_.size();}
     std::string getName() { return name_;}
+    const std::vector<std::unique_ptr<basicBlock>>& getBasicBlocks() {return blocks_;}
     const std::vector<instruction_t>& getInstructionsForLine(uint64_t);
+    void addInstructionForLine(uint64_t, const instruction_t& instruction);
 private:
     std::string name_;
     std::string disassembly_;
@@ -141,6 +144,7 @@ public:
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData );
 private:
+    void buildLineMap(void *buff, const char *elfFilePath);
     parse_mode getLineType(std::string& line);
     static bool isBranch(const std::string& instruction);
 private:

@@ -458,35 +458,9 @@ void kernelDB::dumpDwarfInfo(const char *elfFilePath, llvm::MemoryBuffer *pVal)
     }
 }
 
-void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
-
-    std::string strFile(elfFilePath);
-    std::unique_ptr<MemoryBuffer> pBuff;
-    MemoryBuffer *pVal = NULL;
-    if (!strFile.ends_with(".hsaco"))
-    {
-        std::vector<uint8_t> bits;
-        getElfSectionBits(strFile, std::string(".hip_fatbin"), bits);
-        amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
-        if (info.size)
-        {
-            llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
-            pBuff = MemoryBuffer::getMemBuffer(ref);
-            dumpDwarfInfo(elfFilePath, pBuff.get());
-        }
-    }
-    else
-    {
-        // Open HSACO file
-        auto FileOrErr = MemoryBuffer::getFile(elfFilePath);
-        if (!FileOrErr) {
-            errs() << "Error reading file: " << elfFilePath << "\n";
-            return;
-        }
-        else
-            dumpDwarfInfo(elfFilePath, FileOrErr->get());
-    }
-    //auto ObjOrErr = ObjectFile::createObjectFile(FileOrErr->get()->getMemBufferRef());
+void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
+{
+    MemoryBuffer *pVal = static_cast<MemoryBuffer *>(buff);
     if (pVal)
     {
         auto ObjOrErr = ObjectFile::createObjectFile(pVal->getMemBufferRef());
@@ -527,6 +501,71 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
                        << "\n";
             }
         }
+        for (const auto &CU : DICtx->compile_units()) {
+            if (!CU)
+                continue;
+
+            // Get the line table
+            const auto &LineTable = DICtx->getLineTableForUnit(CU.get());
+
+            if (!LineTable)
+                continue;
+
+            auto it = kernels_.begin();
+            while(it != kernels_.end())
+            {
+                
+                const auto& blocks = it->second.get()->getBasicBlocks();
+                //for (size_t i=0; i < blocks.size(); i++)
+                for (const auto& block : blocks)
+                {
+                    const auto& instructions = block.get()->getInstructions();
+                    for(auto instruction : instructions)
+                    {
+                        DILineInfo info;
+                        bool bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},"", 
+                            DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
+                        std::cout << "Called getFileLineInfoForAddress\n";
+                    }
+                }
+                it++;
+            }
+
+        }
+    }
+}
+
+void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
+
+    std::string strFile(elfFilePath);
+    std::unique_ptr<MemoryBuffer> pBuff;
+    MemoryBuffer *pVal = NULL;
+    if (!strFile.ends_with(".hsaco"))
+    {
+        std::vector<uint8_t> bits;
+        getElfSectionBits(strFile, std::string(".hip_fatbin"), bits);
+        amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
+        if (info.size)
+        {
+            llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
+            pBuff = MemoryBuffer::getMemBuffer(ref);
+            dumpDwarfInfo(elfFilePath, pBuff.get());
+            buildLineMap(pBuff.get(), elfFilePath);
+        }
+    }
+    else
+    {
+        // Open HSACO file
+        auto FileOrErr = MemoryBuffer::getFile(elfFilePath);
+        if (!FileOrErr) {
+            errs() << "Error reading file: " << elfFilePath << "\n";
+            return;
+        }
+        else
+        {
+            dumpDwarfInfo(elfFilePath, FileOrErr->get());
+            buildLineMap(FileOrErr->get(), elfFilePath);
+        }
     }
 }
 
@@ -566,6 +605,15 @@ const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint64_t li
         std::cerr << "Line number " << line << " is not valid for kernel " << name_ << std::endl;
         throw std::runtime_error("Invalid line number in CDNAKernel::getInstructionForLine.");
     } 
+}
+    
+void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instruction)
+{
+    auto it = line_map_.find(line);
+    if (it == line_map_.end())
+        line_map_[line] = {instruction};
+    else
+        it->second.push_back(instruction);
 }
 
 }//kernelDB
