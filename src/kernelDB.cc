@@ -605,6 +605,25 @@ const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::st
         throw std::runtime_error("Unable to find kernel " + kernel_name);
 }
 
+void kernelDB::getKernels(std::vector<std::string>& out)
+{
+    auto it = kernels_.begin();
+    while (it != kernels_.end())
+    {
+        out.push_back(it->first);
+        it++;
+    }
+}
+
+void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& out)
+{
+    auto it = kernels_.find(kernel);
+    if (it != kernels_.end())
+    {
+       it->second.get()->getLineNumbers(out); 
+    }
+}
+
 basicBlock::basicBlock()
 {
 }
@@ -621,6 +640,16 @@ void basicBlock::addInstruction(const instruction_t& instruction)
 CDNAKernel::CDNAKernel(const std::string& name)
 {
     name_ = name;
+}
+    
+void CDNAKernel::getLineNumbers(std::vector<uint32_t>& out)
+{
+    auto it = line_map_.begin();
+    while(it != line_map_.end())
+    {
+        out.push_back(it->first);
+        it++;
+    }
 }
 
 size_t CDNAKernel::addBlock(std::unique_ptr<basicBlock> block)

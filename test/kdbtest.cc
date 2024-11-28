@@ -15,7 +15,24 @@ int main(int argc, char **argv)
                     return HSA_STATUS_SUCCESS;
                 }, reinterpret_cast<void *>(&agent))== HSA_STATUS_SUCCESS)
         {
-            kernelDB::kernelDB test(agent,str); 
+            kernelDB::kernelDB test(agent,str);
+            std::vector<std::string> kernels;
+            std::vector<uint32_t> lines;
+            test.getKernels(kernels);
+            for (auto kernel : kernels)
+            {
+                std::vector<uint32_t> lines;
+                test.getKernelLines(kernel, lines);
+                for (auto& line : lines)
+                {
+                    std::cout << "Line for " << kernel << " " << line << std::endl;
+                    auto inst = test.getInstructionsForLine(kernel, line);
+                    for (auto item : inst)
+                    {
+                        std::cout << "Disassembly: " << item.disassembly_ << std::endl;
+                    }
+                }
+            }
         }
     }
     else
