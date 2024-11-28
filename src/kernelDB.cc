@@ -520,16 +520,6 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
             if (!LineTable)
                 continue;
 
-            // Print source line mappings
-            errs() << "Source line mappings for CU:\n";
-            LineTable->dump(errs(), DIDumpOptions::getForSingleDIE());
-
-            // Iterate over address mappings
-            for (const auto &Row : LineTable->Rows) {
-                errs() << "Address: " << format_hex(Row.Address.Address, 10)
-                       << " -> File: " << Row.File << ", Line: " << Row.Line
-                       << "\n";
-            }
         }
         for (const auto &CU : DICtx->compile_units()) {
             if (!CU)
@@ -564,7 +554,6 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                             inst.path_id_ = it->second.get()->addFileName(info.FileName) - 1;
                             it->second.get()->addLine(info.Line, inst);
                         }
-                        std::cout << "Called getFileLineInfoForAddress\n";
                     }
                 }
                 it++;
