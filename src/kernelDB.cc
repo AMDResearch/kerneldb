@@ -47,6 +47,24 @@ std::string getExecutablePath() {
     return std::string(result, (count > 0) ? count : 0);
 }
 
+/* A helper function to create a list of all the shared libraries in use by the current
+ * process. This is needed for HIP-style applications where, rather than utilizing 
+ * a code object cache of .hsaco files (e.g. the way Triton works), the application
+ * is s HIP application where the instrumented clones are bound to the executable in
+ * a fat binary */
+void getSharedLibraries(std::vector<std::string>& libraries) {
+    dl_iterate_phdr([](struct dl_phdr_info *info, size_t size, void *data){
+        std::vector<std::string>* p_libraries = static_cast<std::vector<std::string>*>(data);
+        
+        if (info->dlpi_name && *info->dlpi_name) {  // Filter out empty names
+            p_libraries->push_back(std::string(info->dlpi_name));
+        }
+        
+        return 0;  // Continue iteration
+    }, &libraries);
+    return;
+}
+
 std::vector<std::string> getIsaList(hsa_agent_t agent)
 {
     std::vector<std::string> list;
@@ -86,9 +104,21 @@ bool kernelDB::isBranch(const std::string& instruction)
 kernelDB::kernelDB(hsa_agent_t agent, const std::string& fileName)
 {
     agent_ = agent;
-    fileName_ = fileName;
     std::string empty("");
-    addFile(fileName, agent, empty);
+    if (fileName.length() == 0)
+    {
+        fileName_ = getExecutablePath();
+        addFile(fileName_, agent, empty);
+        std::vector<std::string> shared_libs;
+        getSharedLibraries(shared_libs);
+        for (auto& lib : shared_libs)
+            addFile(lib, agent, empty);
+    }
+    else
+    {
+        fileName_ = fileName;
+        addFile(fileName_, agent, empty);
+    }
 }
 
 kernelDB::kernelDB(hsa_agent_t agent, std::vector<uint8_t> bits)
@@ -576,6 +606,15 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         }
     }
 }
+    
+const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
+{
+    auto it = kernels_.find(kernel_name);
+    if (it != kernels_.end())
+        return it->second.get()->getInstructionsForLine(line);
+    else
+        throw std::runtime_error("Unable to find kernel " + kernel_name);
+}
 
 basicBlock::basicBlock()
 {
@@ -647,6 +686,17 @@ void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instr
         line_map_[line] = {instruction};
     else
         it->second.push_back(instruction);
+}
+    
+const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint32_t line)
+{
+   auto it = line_map_.find(line);
+   if (it != line_map_.end())
+   {
+       return it->second;
+   }
+   else
+       throw std::runtime_error("Unable to find instructions for line.");
 }
 
 }//kernelDB

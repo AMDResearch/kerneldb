@@ -119,6 +119,7 @@ message("-- LIB-VERSION STRING: ${LIB_VERSION_STRING}")
 set(TARGET_NAME "${KERNELDB_TARGET}")
 set(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(LIB_DIR "${ROOT_DIR}/src")
+set(TEST_DIR "${ROOT_DIR}/test")
 
 # Enable tracing API
 if (NOT USE_PROF_API)
@@ -127,6 +128,7 @@ endif()
 
 # Build libraries
 include(${LIB_DIR}/CMakeLists.txt)
+include(test/CMakeLists.txt)
 
 # Set the VERSION and SOVERSION values
 set_property(TARGET ${TARGET_NAME} PROPERTY VERSION "${LIB_VERSION_STRING}")

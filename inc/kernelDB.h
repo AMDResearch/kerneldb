@@ -128,6 +128,8 @@ public:
     void addInstructionForLine(uint64_t, const instruction_t& instruction);
     void addLine(uint32_t line, const instruction_t& instruction);
     size_t addFileName(const std::string& name);
+    const std::vector<instruction_t>& getInstructionsForLine(uint32_t line);
+    std::string getFileName(size_t index) {return file_names_[index];}
 private:
     std::string name_;
     std::string disassembly_;
@@ -148,6 +150,7 @@ public:
     bool parseDisassembly(const std::string& text);
     void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);
     void addKernel(std::unique_ptr<CDNAKernel> kernel);
+    const std::vector<instruction_t>& getInstructionsForLine(const std::string& kernel_name, uint32_t line);
     static void dumpDwarfInfo(const char *elfFilePath, llvm::MemoryBuffer *pVal);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData );
