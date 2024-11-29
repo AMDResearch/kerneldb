@@ -176,10 +176,6 @@ kernelDB::kernelDB(hsa_agent_t agent, const std::string& fileName)
     }
 }
 
-kernelDB::kernelDB(hsa_agent_t agent, std::vector<uint8_t> bits)
-{
-}
-
 kernelDB::~kernelDB()
 {
    std::cout << "Ending kernelDB\n";

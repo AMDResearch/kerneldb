@@ -133,7 +133,6 @@ private:
 class __attribute__((visibility("default"))) kernelDB {
 public:
     kernelDB(hsa_agent_t agent, const std::string& fileName);
-    kernelDB(hsa_agent_t agent, std::vector<uint8_t> bits);
     ~kernelDB();
     bool getBasicBlocks(const std::string& name, std::vector<basicBlock>&);
     const CDNAKernel& getKernel(const std::string& name);
