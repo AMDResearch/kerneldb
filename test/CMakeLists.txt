@@ -58,6 +58,5 @@ target_link_libraries(
     stdc++
     stdc++fs
     kernelDB64
-    ${LLVM_LIBS}
 )
 

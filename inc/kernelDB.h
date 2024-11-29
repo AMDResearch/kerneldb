@@ -20,16 +20,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 *******************************************************************************/
 #pragma once
-#include "llvm/DebugInfo/DWARF/DWARFContext.h"
-#include "llvm/DebugInfo/DWARF/DWARFDie.h"
-#include "llvm/DebugInfo/DWARF/DWARFUnit.h"
-#include "llvm/Object/ELFObjectFile.h"
-#include "llvm/Object/ObjectFile.h"
-#include "llvm/Object/SymbolSize.h"
-#include "llvm/Support/Error.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
-#include <elf.h>
 
 #include <assert.h>
 #include <cxxabi.h>
@@ -154,7 +144,7 @@ public:
     const std::vector<instruction_t>& getInstructionsForLine(const std::string& kernel_name, uint32_t line);
     void getKernels(std::vector<std::string>& out);
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
-    static void dumpDwarfInfo(const char *elfFilePath, llvm::MemoryBuffer *pVal);
+    static void dumpDwarfInfo(const char *elfFilePath, void * val);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData );
 private:
