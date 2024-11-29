@@ -53,6 +53,49 @@ namespace kernelDB {
 static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbranch_scc0", "s_cbranch_scc1", "s_cbranch_vccz", "s_cbranch_vccnz", "s_cbranch_execz", "s_cbranch_execnz",
     "s_setpc_b64", "s_call_b64", "s_return_b64", "s_trap", "s_endpgm"};
 
+#define OMNIPROBE_PREFIX "__amd_crk_"
+
+std::string demangleName(const char *name)
+{
+   int status;
+   std::string result;
+   char *realname = abi::__cxa_demangle(name, 0, 0, &status);
+   if (status == 0)
+   {
+       if (realname)
+       {
+           result = realname;
+           free(realname);
+       }
+   }
+   else
+   {
+        if (realname)
+            free(realname);
+        // We're going through these gyrations here because the OMNIPROBE_PREFIX is being
+        // prepended by the LLVM plugin AFTER kernel name mangling has already occurred.
+        // So we have to do some special kind of non-standard de-mangling by stripping the
+        // OMNIPROBE_PREFIX from the name before demangling, then adding it back in the
+        // appropriate place.
+        if (!strncmp(name, OMNIPROBE_PREFIX, strlen(OMNIPROBE_PREFIX)))
+        {
+            realname = abi::__cxa_demangle(&name[strlen(OMNIPROBE_PREFIX)],0,0, &status);
+            if (status == 0 && realname)
+            {
+                result = realname;
+                size_t pos = result.find_first_of(" ");
+                size_t ret_type = result.find_first_of("(");
+                // If pos > ret_type this means that there's no return type in the kernel name
+                if (pos > ret_type)
+                    pos = -1;
+                result.insert(pos+1, OMNIPROBE_PREFIX);
+                free(realname);
+            }
+        }
+   }
+   return result.length() ? result : std::string(name);
+}
+
 std::string getExecutablePath() {
     char result[PATH_MAX];
     ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
@@ -314,7 +357,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 break;
             case KERNEL:
                 strKernel = line.substr(0, line.length() - 1);
-                kernel = std::make_unique<CDNAKernel>(strKernel);
+                kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
                 current_kernel = kernel.get();
                 addKernel(std::move(kernel));
                 mode=BBLOCK;
