@@ -21,3 +21,54 @@ kernelDB works by loading hsaco and/or HIP fat binary files and disassembling th
 the code objects, kernelDB constructs a map for each kernel which connects source lines to load/store instructions. kernelDB exposes an interface by
 which callers can submit a source line number for a kernel and receive back a vector of instruction_t structures containing detailed information
 about every load/store operation at that line in the code.
+## Usage
+To use kernelDB, simply create an instance of the kernelDB class, providing an hsa_agent_t and a std::string& of the file name containing the kernels you want
+load. If the file name is "", kernelDB will look inside the running process and all associated shared libraries for hip fat binary bundles and load any kernels
+it finds there. kernelDB can handle both fat binaries as well as stand alone code objects (e.g. hsaco files)
+
+Once a kernelDB instance has been created, data regarding all load/store instructions can be queried by providing the kernel name of interest, and the line number
+you're interested in. 
+
+Under the test directory there is a small test program (kdbtest) that exercises the API and can serve as an example of one way to use the api. 
+```
+#include <iostream>
+#include <string>
+#include "inc/kernelDB.h"
+
+int main(int argc, char **argv)
+{
+    hsa_init();
+    if (argc > 1)
+    {
+        std::string str(argv[1]);
+        hsa_agent_t agent;
+        if(hsa_iterate_agents ([](hsa_agent_t agent, void *data){
+                    hsa_agent_t *this_agent  = reinterpret_cast<hsa_agent_t *>(data);
+                    *this_agent = agent;
+                    return HSA_STATUS_SUCCESS;
+                }, reinterpret_cast<void *>(&agent))== HSA_STATUS_SUCCESS)
+        {
+            kernelDB::kernelDB test(agent,str);
+            std::vector<std::string> kernels;
+            std::vector<uint32_t> lines;
+            test.getKernels(kernels);
+            for (auto kernel : kernels)
+            {
+                std::vector<uint32_t> lines;
+                test.getKernelLines(kernel, lines);
+                for (auto& line : lines)
+                {
+                    std::cout << "Line for " << kernel << " " << line << std::endl;
+                    auto inst = test.getInstructionsForLine(kernel, line);
+                    for (auto item : inst)
+                    {
+                        std::cout << "Disassembly: " << item.disassembly_ << std::endl;
+                    }
+                }
+            }
+        }
+    }
+    else
+        std::cout << "Usage: kdbtest <hsaco or HIP binary to test>\n";
+}
+```
