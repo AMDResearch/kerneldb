@@ -68,6 +68,7 @@ THE SOFTWARE.
 #include <amd_comgr/amd_comgr.h>
 
 
+
 namespace kernelDB {
 
 typedef struct instruction_s{
@@ -97,13 +98,14 @@ public:
     basicBlock();
     ~basicBlock() = default;
     void addInstruction(const instruction_t& instruction);
-    const std::vector<instruction_t>& getInstructions(){return instructions_;}
+    const std::vector<instruction_t>& getInstructions();
 private:
 private:
     uint16_t block_id;
     std::string disassembly_;
     std::vector<instruction_t> instructions_;
     std::map<std::string, uint64_t> counts_;
+    std::shared_mutex mutex_;
 };
 
 class __attribute__((visibility("default"))) CDNAKernel {
@@ -128,6 +130,7 @@ private:
     std::map<uint32_t, std::vector<instruction_t>> line_map_;
     std::map<std::string, size_t> file_map_;
     std::vector<std::string> file_names_;
+    std::shared_mutex mutex_;
 };
 
 class __attribute__((visibility("default"))) kernelDB {
@@ -155,6 +158,7 @@ private:
     amd_comgr_data_t executable_;
     hsa_agent_t agent_;
     std::string fileName_;
+    std::shared_mutex mutex_;
 };
 
 

@@ -35,6 +35,9 @@ THE SOFTWARE.
 #include <elf.h>
 
 #include "inc/kernelDB.h"
+
+
+
 #define FATBIN_SECTION ".hip_fatbin"
 
 #define CHECK_COMGR(call)                                                                          \
@@ -189,6 +192,7 @@ kernelDB::~kernelDB()
     
 const CDNAKernel& kernelDB::getKernel(const std::string& name)
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(name);
     if (it != kernels_.end())
     {
@@ -205,6 +209,7 @@ bool kernelDB::getBasicBlocks(const std::string& kernel, std::vector<basicBlock>
     
 void kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     std::string strName = kernel.get()->getName();
     if (kernels_.find(strName) == kernels_.end())
     {
@@ -582,7 +587,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
 
             if (!LineTable)
                 continue;
-
+            std::unique_lock<std::shared_mutex> lock(mutex_);
             auto it = kernels_.begin();
             while(it != kernels_.end())
             {
@@ -650,6 +655,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
     
 const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(kernel_name);
     if (it != kernels_.end())
         return it->second.get()->getInstructionsForLine(line);
@@ -659,6 +665,7 @@ const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::st
 
 void kernelDB::getKernels(std::vector<std::string>& out)
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.begin();
     while (it != kernels_.end())
     {
@@ -669,6 +676,7 @@ void kernelDB::getKernels(std::vector<std::string>& out)
 
 void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& out)
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(kernel);
     if (it != kernels_.end())
     {
@@ -680,8 +688,15 @@ basicBlock::basicBlock()
 {
 }
 
+const std::vector<instruction_t>& basicBlock::getInstructions()
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return instructions_;
+}
+
 void basicBlock::addInstruction(const instruction_t& instruction)
 {
+   std::unique_lock<std::shared_mutex> lock(mutex_);
    instructions_.push_back(instruction);
    if (counts_.find(instruction.inst_) != counts_.end())
         counts_[instruction.inst_]++;
@@ -696,6 +711,7 @@ CDNAKernel::CDNAKernel(const std::string& name)
     
 void CDNAKernel::getLineNumbers(std::vector<uint32_t>& out)
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = line_map_.begin();
     while(it != line_map_.end())
     {
@@ -706,12 +722,14 @@ void CDNAKernel::getLineNumbers(std::vector<uint32_t>& out)
 
 size_t CDNAKernel::addBlock(std::unique_ptr<basicBlock> block)
 {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     blocks_.push_back(std::move(block));
     return blocks_.size();
 }
 
 const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint64_t line)
 {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = line_map_.find(line);
     if (it != line_map_.end())
     {
@@ -726,6 +744,7 @@ const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint64_t li
     
 void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
 {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = line_map_.find(line);
     if (it != line_map_.end())
         it->second.push_back(instruction);
@@ -737,6 +756,7 @@ void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
 size_t CDNAKernel::addFileName(const std::string& name)
 {
     size_t result = 0;
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = file_map_.find(name);
     if (it == file_map_.end())
     {
@@ -751,6 +771,7 @@ size_t CDNAKernel::addFileName(const std::string& name)
     
 void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instruction)
 {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = line_map_.find(line);
     if (it == line_map_.end())
         line_map_[line] = {instruction};
@@ -760,6 +781,7 @@ void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instr
     
 const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint32_t line)
 {
+   std::shared_lock<std::shared_mutex> lock(mutex_);
    auto it = line_map_.find(line);
    if (it != line_map_.end())
    {
