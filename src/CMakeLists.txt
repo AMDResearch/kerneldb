@@ -64,3 +64,12 @@ target_link_libraries(
     ${LLVM_LIBS}
 )
 
+file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "inc/*.h")
+set_target_properties(${TARGET_LIB} PROPERTIES PUBLIC_HEADER "${KERNELDB_INCLUDE_FILES}")
+include(GNUInstallDirs)
+install(TARGETS ${TARGET_LIB}
+    LIBRARY DESTINATION lib
+    PUBLIC_HEADER DESTINATION include/kerneldb)
+
+message(STATUS "==> {Library,include} install dirs: ${CMAKE_INSTALL_PREFIX}/{${CMAKE_INSTALL_LIBDIR},${CMAKE_INSTALL_INCLUDEDIR}/kerneldb}")
+message(STATUS "==> To change install dirs, rerun cmake with argument \"-DCMAKE_INSTALL_PREFIX=/path/to/install/dir\"")

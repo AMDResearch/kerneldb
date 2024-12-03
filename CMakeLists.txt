@@ -163,8 +163,8 @@ message("CPack-install-prefix: ${CPACK_PACKAGING_INSTALL_PREFIX}")
 message("-----------Dest-name: ${DEST_NAME}")
 
 # Install header and library
-install(TARGETS ${KERNELDB_TARGET} LIBRARY DESTINATION ${DEST_NAME}/lib)
-install(FILES ${LIB_DIR}/logduration DESTINATION ${DEST_NAME}/bin)
+#install(TARGETS ${KERNELDB_TARGET} LIBRARY DESTINATION ${DEST_NAME}/lib)
+#install(FILES ${LIB_DIR}/kerneldb DESTINATION ${DEST_NAME}/bin)
 
 # Packaging directives
 set(CPACK_GENERATOR "DEB" "RPM" "TGZ")
