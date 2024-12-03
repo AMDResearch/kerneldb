@@ -1,5 +1,5 @@
 # kerneldb
-This library exposes a C++ class which can be used for understanding CDNA kernel implementations. kernelDB is specifically
+This library exposes a C++ class which can be used for querying data within CDNA kernel implementations. kernelDB is initially
 implemented to support memory access efficiency analysis as part of the feature-set of omniprobe, from AMD research.
 
 Omniprobe provides intra-kernel observation by injecting code at compile time which causes the instrumented kernel to emit "messages" 
