@@ -72,3 +72,14 @@ int main(int argc, char **argv)
         std::cout << "Usage: kdbtest <hsaco or HIP binary to test>\n";
 }
 ```
+## Building
+kernelDB has a dependency on an llvm environment in order to build. For now, the best one to use is the rocm-llvm-dev package. It may not be installed by default so you may need to install it.
+Alternatively, you can use the Triton llvm that can typically be found somewhere under here: ~/.triton/llvm. To point the build at a specific llvm install, do the following:
+```
+cd build
+cmake -DLLVM_INSTALL_DIR=/opt/rocm/llvm -DCMAKE_INSTALL_PREFIX=~/.local ..
+make && make install
+```
+The above commands will build libkernelDB64.so and copy it to ${CMAKE_INSTALL_PREFIX}/lib while copying the kerneldb include files to ${CMAKE_INSTALL_PREFIX}/include. If you omit the definition of CMAKE_INSTALL_PREFIX, it defaults to /usr/local.
+
+Building with the Triton llvm will work fine for Triton code objects, but kernelDB will not be able to read HIP binaries. As of this writing, the dwarf support in the Triton llvm implementation chokes on HIP-generated dwarf info. On the other hand, building with rocm-llvm-dev work for _both_ HIP binaries and Triton hsaco files. So it's preferable to build against ROCM llvm if you're able to.
