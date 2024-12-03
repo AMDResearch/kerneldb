@@ -207,8 +207,9 @@ bool kernelDB::getBasicBlocks(const std::string& kernel, std::vector<basicBlock>
     return true;
 }
     
-void kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
+bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 {
+    bool result = true;
     std::unique_lock<std::shared_mutex> lock(mutex_);
     std::string strName = kernel.get()->getName();
     if (kernels_.find(strName) == kernels_.end())
@@ -217,9 +218,11 @@ void kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
     }
     else
     {
-        std::cout << "You're adding kernel \"" << strName << "\" which we've seen before. Something is wrong." << std::endl;
-        abort();
+        std::cout << "You're adding kernel \"" << strName << "\" which we've seen before. Something may be wrong." << std::endl;
+        kernels_[strName] = std::move(kernel);
+        result = false;
     }
+    return result;
 }
 
 bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter)
@@ -227,6 +230,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     bool bReturn = true;
     amd_comgr_data_t executable;
     std::vector<std::string> isas = ::kernelDB::getIsaList(agent);
+    std::cout << "Adding " << name << std::endl;
     if (name.ends_with(".hsaco"))
     {
         std::vector<char> buff;
@@ -254,7 +258,15 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     {
         amd_comgr_data_t bundle;
         std::vector<uint8_t> bits;
-        getElfSectionBits(name, FATBIN_SECTION, bits);
+        try
+        {
+            getElfSectionBits(name, FATBIN_SECTION, bits);
+        }
+        catch (const std::runtime_error e)
+        {
+            //getElfSectionBits will throw a runtime error if it can't find the file. 
+            return false;
+        }
         CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
         CHECK_COMGR(amd_comgr_set_data(bundle, bits.size(), reinterpret_cast<const char *>(bits.data())));
         if (isas.size())
@@ -360,9 +372,10 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 strKernel = line.substr(0, line.length() - 1);
                 kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
                 current_kernel = kernel.get();
-                addKernel(std::move(kernel));
                 mode=BBLOCK;
                 block_count++;
+                addKernel(std::move(kernel));
+                
                 break;
             case BBLOCK:
                 split(line, tokens, " ", false);
@@ -382,6 +395,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         else
                         {
                             std::cout << "Disassembly parsing error. Processing a branch instruction when there's not a kernel currently defined.\n";
+                            std::cout << line << std::endl;
                             abort();
                         }
                         current_block = nullptr;
@@ -633,7 +647,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         {
             llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
             pBuff = MemoryBuffer::getMemBuffer(ref);
-            dumpDwarfInfo(elfFilePath, pBuff.get());
+            //dumpDwarfInfo(elfFilePath, pBuff.get());
             buildLineMap(pBuff.get(), elfFilePath);
         }
     }
@@ -647,7 +661,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         }
         else
         {
-            dumpDwarfInfo(elfFilePath, FileOrErr->get());
+            //dumpDwarfInfo(elfFilePath, FileOrErr->get());
             buildLineMap(FileOrErr->get(), elfFilePath);
         }
     }
