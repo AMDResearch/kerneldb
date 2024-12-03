@@ -34,7 +34,7 @@ THE SOFTWARE.
 #include "llvm/Support/raw_ostream.h"
 #include <elf.h>
 
-#include "inc/kernelDB.h"
+#include "include/kernelDB.h"
 
 
 

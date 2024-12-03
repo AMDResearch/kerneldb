@@ -64,7 +64,7 @@ target_link_libraries(
     ${LLVM_LIBS}
 )
 
-file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "inc/*.h")
+file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
 set_target_properties(${TARGET_LIB} PROPERTIES PUBLIC_HEADER "${KERNELDB_INCLUDE_FILES}")
 include(GNUInstallDirs)
 install(TARGETS ${TARGET_LIB}
