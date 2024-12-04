@@ -99,6 +99,21 @@ std::string demangleName(const char *name)
    return result.length() ? result : std::string(name);
 }
 
+std::string getKernelName(const std::string& name)
+{
+    std::string result = name;
+    size_t pos = result.find_last_of(')');
+    if (pos != std::string::npos)
+        result.erase(pos + 1);
+    else
+    {
+        pos = result.find_last_of('.');
+        if (pos != std::string::npos)
+            result.erase(pos);
+    }
+    return result;
+}
+
 std::string getExecutablePath() {
     char result[PATH_MAX];
     ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
@@ -193,7 +208,7 @@ kernelDB::~kernelDB()
 const CDNAKernel& kernelDB::getKernel(const std::string& name)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = kernels_.find(name);
+    auto it = kernels_.find(getKernelName(name));
     if (it != kernels_.end())
     {
         return *(it->second.get());
@@ -670,7 +685,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
 const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = kernels_.find(kernel_name);
+    auto it = kernels_.find(getKernelName(kernel_name));
     if (it != kernels_.end())
         return it->second.get()->getInstructionsForLine(line);
     else
@@ -691,7 +706,7 @@ void kernelDB::getKernels(std::vector<std::string>& out)
 void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& out)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = kernels_.find(kernel);
+    auto it = kernels_.find(getKernelName(kernel));
     if (it != kernels_.end())
     {
        it->second.get()->getLineNumbers(out); 
