@@ -629,7 +629,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                     for(auto& instruction : instructions)
                     {
                         DILineInfo info;
-                        bool bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},"", 
+                        bool bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},false,"", 
                             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
                         if (bSuccess)
                         {
