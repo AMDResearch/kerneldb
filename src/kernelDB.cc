@@ -629,8 +629,16 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                     for(auto& instruction : instructions)
                     {
                         DILineInfo info;
-                        bool bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},false,"", 
+                        bool bSuccess;
+
+                        #if LLVM_VERSION_MAJOR > 18
+                        bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},false,"", 
                             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
+                        #else
+                        bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},"", 
+                            DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
+                        #endif
+
                         if (bSuccess)
                         {
                             instruction_t inst = instruction;
