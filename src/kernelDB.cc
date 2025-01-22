@@ -631,7 +631,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                         DILineInfo info;
                         bool bSuccess;
 
-                        #if LLVM_VERSION_MAJOR > 18
+                        #if LLVM_VERSION_MAJOR > 19
                         bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},false,"", 
                             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
                         #else
