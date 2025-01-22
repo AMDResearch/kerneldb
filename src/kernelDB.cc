@@ -636,6 +636,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                             instruction_t inst = instruction;
                             inst.line_ = info.Line;
                             inst.column_ = info.Column;
+                            inst.block_ = block.get();
                             //addFileName returns a 1-based index. 
                             inst.path_id_ = it->second.get()->addFileName(info.FileName) - 1;
                             it->second.get()->addLine(info.Line, inst);
@@ -680,6 +681,19 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
             buildLineMap(FileOrErr->get(), elfFilePath);
         }
     }
+}
+    
+
+std::string kernelDB::getFileName(const std::string& kernel, size_t index)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    auto it = kernels_.find(getKernelName(kernel));
+    if (it != kernels_.end())
+    {
+        return it->second.get()->getFileName(index);
+    }
+    else
+        return "";
 }
     
 const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
@@ -756,20 +770,6 @@ size_t CDNAKernel::addBlock(std::unique_ptr<basicBlock> block)
     return blocks_.size();
 }
 
-const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint64_t line)
-{
-    std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = line_map_.find(line);
-    if (it != line_map_.end())
-    {
-        return it->second;
-    }
-    else
-    {
-        std::cerr << "Line number " << line << " is not valid for kernel " << name_ << std::endl;
-        throw std::runtime_error("Invalid line number in CDNAKernel::getInstructionForLine.");
-    } 
-}
     
 void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
 {
@@ -814,6 +814,7 @@ const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint32_t li
    auto it = line_map_.find(line);
    if (it != line_map_.end())
    {
+       std::cout << "Kernel: " << name_ << "\tInstruction Count for line " << line << " == " << it->second.size() << std::endl;
        return it->second;
    }
    else

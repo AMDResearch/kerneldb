@@ -26,10 +26,18 @@ int main(int argc, char **argv)
                 for (auto& line : lines)
                 {
                     std::cout << "Line for " << kernel << " " << line << std::endl;
-                    auto inst = test.getInstructionsForLine(kernel, line);
-                    for (auto item : inst)
+                    try
                     {
-                        std::cout << "Disassembly: " << item.disassembly_ << std::endl;
+                        const auto& inst = test.getInstructionsForLine(kernel, line);
+                        for(size_t idx = 0; idx < inst.size(); idx++)
+                        //for (const auto& item : inst)
+                        {
+                            std::cout << "Disassembly: " << inst[idx].disassembly_ << std::endl;
+                        }
+                    }
+                    catch(std::runtime_error e)
+                    {
+                        std::cout << "Error: " << e.what() << std::endl;
                     }
                 }
             }

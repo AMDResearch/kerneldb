@@ -70,6 +70,8 @@ THE SOFTWARE.
 
 
 namespace kernelDB {
+
+class basicBlock;
     
 std::string getKernelName(const std::string& name);
 
@@ -84,6 +86,7 @@ typedef struct instruction_s{
     uint32_t line_;
     uint32_t column_;
     size_t path_id_;
+    basicBlock *block_;
 }instruction_t;
 
 
@@ -118,7 +121,6 @@ public:
     size_t getBlockCount() { return blocks_.size();}
     std::string getName() { return name_;}
     const std::vector<std::unique_ptr<basicBlock>>& getBasicBlocks() {return blocks_;}
-    const std::vector<instruction_t>& getInstructionsForLine(uint64_t);
     void addInstructionForLine(uint64_t, const instruction_t& instruction);
     void addLine(uint32_t line, const instruction_t& instruction);
     size_t addFileName(const std::string& name);
@@ -130,6 +132,7 @@ private:
     std::string disassembly_;
     std::vector<std::unique_ptr<basicBlock>> blocks_;
     std::map<uint32_t, std::vector<instruction_t>> line_map_;
+    std::map<uint32_t, basicBlock *> block_map_;
     std::map<std::string, size_t> file_map_;
     std::vector<std::string> file_names_;
     std::shared_mutex mutex_;
@@ -148,6 +151,7 @@ public:
     const std::vector<instruction_t>& getInstructionsForLine(const std::string& kernel_name, uint32_t line);
     void getKernels(std::vector<std::string>& out);
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
+    std::string getFileName(const std::string& kernel, size_t index);
     static void dumpDwarfInfo(const char *elfFilePath, void * val);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData );

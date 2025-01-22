@@ -51,6 +51,12 @@ execute_process(
 
 message(STATUS "LLVM Link Libraries: ${LLVM_LIBS}")
 
+target_compile_options(
+    ${TARGET_LIB}
+  PRIVATE
+    -O0
+)
+
 target_link_libraries(
     ${TARGET_LIB}
   PRIVATE

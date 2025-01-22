@@ -49,6 +49,12 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
+target_compile_options(
+    ${TEST_APP}
+  PRIVATE
+    -O0
+)
+
 
 target_link_libraries(
     ${TEST_APP}
