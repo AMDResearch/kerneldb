@@ -121,18 +121,18 @@ std::string getExecutablePath() {
 }
 
 /* A helper function to create a list of all the shared libraries in use by the current
- * process. This is needed for HIP-style applications where, rather than utilizing 
+ * process. This is needed for HIP-style applications where, rather than utilizing
  * a code object cache of .hsaco files (e.g. the way Triton works), the application
  * is s HIP application where the instrumented clones are bound to the executable in
  * a fat binary */
 void getSharedLibraries(std::vector<std::string>& libraries) {
     dl_iterate_phdr([](struct dl_phdr_info *info, size_t size, void *data){
         std::vector<std::string>* p_libraries = static_cast<std::vector<std::string>*>(data);
-        
+
         if (info->dlpi_name && *info->dlpi_name) {  // Filter out empty names
             p_libraries->push_back(std::string(info->dlpi_name));
         }
-        
+
         return 0;  // Continue iteration
     }, &libraries);
     return;
@@ -164,10 +164,10 @@ std::vector<std::string> getIsaList(hsa_agent_t agent)
                 }
            }
            return HSA_STATUS_SUCCESS;
-        }, reinterpret_cast<void *>(&list));   
+        }, reinterpret_cast<void *>(&list));
     return list;
 }
-    
+
 bool kernelDB::isBranch(const std::string& instruction)
 {
     return branch_instructions.find(instruction) != branch_instructions.end();
@@ -204,7 +204,7 @@ kernelDB::~kernelDB()
        it++;
    }
 }
-    
+
 const CDNAKernel& kernelDB::getKernel(const std::string& name)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -221,7 +221,7 @@ bool kernelDB::getBasicBlocks(const std::string& kernel, std::vector<basicBlock>
 {
     return true;
 }
-    
+
 bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 {
     bool result = true;
@@ -279,7 +279,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         }
         catch (const std::runtime_error e)
         {
-            //getElfSectionBits will throw a runtime error if it can't find the file. 
+            //getElfSectionBits will throw a runtime error if it can't find the file.
             return false;
         }
         CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
@@ -299,7 +299,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
                     CHECK_COMGR(amd_comgr_set_data(executable, co.size, reinterpret_cast<const char *>(bits.data() + co.offset)));
                     break;
                 }
-            }   
+            }
         }
         CHECK_COMGR(amd_comgr_release_data(bundle));
     }
@@ -318,11 +318,11 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
                             dataAction, dataSetIn, dataSetOut));
 		CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
 		size_t count,size;
-        
+
 		CHECK_COMGR(amd_comgr_action_data_count(dataSetOut, AMD_COMGR_DATA_KIND_SOURCE, &count));
 		CHECK_COMGR(amd_comgr_action_data_get_data(dataSetOut, AMD_COMGR_DATA_KIND_SOURCE, 0, &dataOutput));
 		CHECK_COMGR(amd_comgr_get_data(dataOutput, &size, NULL));
-		
+
         char *bytes = (char *)malloc(size+1);
         bytes[size] = '\0';
 		CHECK_COMGR(amd_comgr_get_data(dataOutput, &size, bytes));
@@ -390,7 +390,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 mode=BBLOCK;
                 block_count++;
                 addKernel(std::move(kernel));
-                
+
                 break;
             case BBLOCK:
                 split(line, tokens, " ", false);
@@ -522,7 +522,7 @@ amd_comgr_code_object_info_t kernelDB::getCodeObjectInfo(hsa_agent_t agent, std:
                 CHECK_COMGR(amd_comgr_release_data(bundle));
                 return co;
             }
-        }   
+        }
     }
     CHECK_COMGR(amd_comgr_release_data(bundle));
     return {0,0,0};
@@ -620,7 +620,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
             auto it = kernels_.begin();
             while(it != kernels_.end())
             {
-                
+
                 const auto& blocks = it->second.get()->getBasicBlocks();
                 //for (size_t i=0; i < blocks.size(); i++)
                 for (const auto& block : blocks)
@@ -632,10 +632,10 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                         bool bSuccess;
 
                         #if LLVM_VERSION_MAJOR > 19
-                        bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},false,"", 
+                        bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},false,"",
                             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
                         #else
-                        bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},"", 
+                        bSuccess = LineTable->getFileLineInfoForAddress({instruction.address_},"",
                             DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,info);
                         #endif
 
@@ -645,7 +645,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                             inst.line_ = info.Line;
                             inst.column_ = info.Column;
                             inst.block_ = block.get();
-                            //addFileName returns a 1-based index. 
+                            //addFileName returns a 1-based index.
                             inst.path_id_ = it->second.get()->addFileName(info.FileName) - 1;
                             it->second.get()->addLine(info.Line, inst);
                         }
@@ -690,7 +690,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         }
     }
 }
-    
+
 
 std::string kernelDB::getFileName(const std::string& kernel, size_t index)
 {
@@ -703,7 +703,7 @@ std::string kernelDB::getFileName(const std::string& kernel, size_t index)
     else
         return "";
 }
-    
+
 const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -731,7 +731,7 @@ void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& 
     auto it = kernels_.find(getKernelName(kernel));
     if (it != kernels_.end())
     {
-       it->second.get()->getLineNumbers(out); 
+       it->second.get()->getLineNumbers(out);
     }
 }
 
@@ -759,7 +759,7 @@ CDNAKernel::CDNAKernel(const std::string& name)
 {
     name_ = name;
 }
-    
+
 void CDNAKernel::getLineNumbers(std::vector<uint32_t>& out)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -778,7 +778,7 @@ size_t CDNAKernel::addBlock(std::unique_ptr<basicBlock> block)
     return blocks_.size();
 }
 
-    
+
 void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
 {
     std::unique_lock<std::shared_mutex> lock(mutex_);
@@ -788,7 +788,7 @@ void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
     else
         line_map_[line] = {instruction};
 }
-    
+
 // 1-based index so that 0 indicates an error
 size_t CDNAKernel::addFileName(const std::string& name)
 {
@@ -805,7 +805,7 @@ size_t CDNAKernel::addFileName(const std::string& name)
         result = it->second;
     return result;
 }
-    
+
 void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instruction)
 {
     std::unique_lock<std::shared_mutex> lock(mutex_);
@@ -815,14 +815,13 @@ void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instr
     else
         it->second.push_back(instruction);
 }
-    
+
 const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint32_t line)
 {
    std::shared_lock<std::shared_mutex> lock(mutex_);
    auto it = line_map_.find(line);
    if (it != line_map_.end())
    {
-       std::cout << "Kernel: " << name_ << "\tInstruction Count for line " << line << " == " << it->second.size() << std::endl;
        return it->second;
    }
    else
