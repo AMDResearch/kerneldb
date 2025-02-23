@@ -429,7 +429,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         for (size_t i = 3; i < inst_tokens.size(); i++)
                             inst.operands_.push_back(inst_tokens[i]);
                         size_t i = 1;
-                        while (tokens[i] != "//")
+                        while (tokens[i].find("//") == std::string::npos)
                             i++;
                         std::string strAddress = tokens[++i];
                         // remove the ending colon
