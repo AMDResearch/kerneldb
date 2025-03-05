@@ -29,7 +29,16 @@ set ( LIB_SRC
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-link_directories(${ROCM_ROOT_DIR}/lib $ENV{HOME}/.local/lib64 ${LLVM_INSTALL_DIR}/lib)
+# Default ROCm path can be infered
+if(DEFINED ENV{ROCM_PATH})
+  set(ROCM_PATH $ENV{ROCM_PATH})
+else()
+  set(ROCM_PATH "/opt/rocm")
+endif()
+message("ROCM_PATH: ${ROCM_PATH}")
+set(ROCM_LLVM "${ROCM_PATH}/llvm" CACHE PATH "Path to the ROCm LLVM directory")
+
+link_directories(${ROCM_ROOT_DIR}/lib $ENV{HOME}/.local/lib64 ${ROCM_LLVM}/lib)
 add_library ( ${TARGET_LIB} SHARED ${LIB_SRC})
 
 target_include_directories (
@@ -40,11 +49,11 @@ target_include_directories (
     ${ROOT_DIR}
     ${HSA_RUNTIME_INC_PATH}
     ${HSA_KMT_LIB_PATH}/..
-    ${LLVM_INSTALL_DIR}/include
+    ${ROCM_LLVM}/include
 )
 
 execute_process(
-    COMMAND /bin/sh -c "${LLVM_INSTALL_DIR}/bin/llvm-config --libs all | awk '{for (i=1; i<=NF; i++) printf(\"%s;\",substr($i, 3))}'"
+    COMMAND /bin/sh -c "${ROCM_LLVM}/bin/llvm-config --libs all | awk '{for (i=1; i<=NF; i++) printf(\"%s;\",substr($i, 3))}'"
     OUTPUT_VARIABLE LLVM_LIBS
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
