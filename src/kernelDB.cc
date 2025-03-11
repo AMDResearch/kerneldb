@@ -331,9 +331,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         //CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
         CHECK_COMGR(amd_comgr_release_data(dataOutput));
         CHECK_COMGR(amd_comgr_release_data(executable));
-        std::cout << "Disassembly start =============== " << std::endl;
-        std::cout << strDisassembly << std::endl;
-        std::cout << "Disassembly end =============== " << std::endl;
+        //std::cout << strDisassembly << std::endl;
         parseDisassembly(strDisassembly);
         mapDisassemblyToSource(agent, name.c_str());
     }
@@ -377,7 +375,6 @@ bool kernelDB::parseDisassembly(const std::string& text)
     {
         std::vector<std::string> tokens;
         mode = getLineType(line);
-        std::cout << "Line: " << line << std::endl;
         switch(mode)
         {
             case BEGIN:
@@ -651,9 +648,6 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                             //addFileName returns a 1-based index.
                             inst.path_id_ = it->second.get()->addFileName(info.FileName) - 1;
                             inst.file_name_ = info.FileName;
-                            std::cout << "info.line: " << info.Line << std::endl;
-                            std::cout << "info.file: " << info.FileName << std::endl;
-                            // std::cout << "inst" << inst << std::endl;
                             it->second.get()->addLine(info.Line, inst);
                         }
                     }
@@ -678,7 +672,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         {
             llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
             pBuff = MemoryBuffer::getMemBuffer(ref);
-            dumpDwarfInfo(elfFilePath, pBuff.get());
+            //dumpDwarfInfo(elfFilePath, pBuff.get());
             buildLineMap(pBuff.get(), elfFilePath);
         }
     }
