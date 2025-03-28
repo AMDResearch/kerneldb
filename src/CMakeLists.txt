@@ -43,7 +43,7 @@ add_library ( ${TARGET_LIB} SHARED ${LIB_SRC})
 
 target_include_directories (
     ${TARGET_LIB}
-  PRIVATE
+  PUBLIC
     ${LIB_DIR}
     ${ROCM_ROOT_DIR}/include
     ${ROOT_DIR}

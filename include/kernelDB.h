@@ -86,6 +86,7 @@ typedef struct instruction_s{
     uint32_t line_;
     uint32_t column_;
     size_t path_id_;
+    std::string file_name_;
     basicBlock *block_;
 }instruction_t;
 

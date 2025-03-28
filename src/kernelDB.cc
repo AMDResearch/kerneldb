@@ -647,6 +647,7 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
                             inst.block_ = block.get();
                             //addFileName returns a 1-based index.
                             inst.path_id_ = it->second.get()->addFileName(info.FileName) - 1;
+                            inst.file_name_ = info.FileName;
                             it->second.get()->addLine(info.Line, inst);
                         }
                     }
