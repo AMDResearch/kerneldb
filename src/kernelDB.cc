@@ -194,6 +194,8 @@ kernelDB::kernelDB(hsa_agent_t agent, const std::string& fileName)
     }
 }
 
+kernelDB::kernelDB(hsa_agent_t agent) : agent_{agent} {}
+
 kernelDB::~kernelDB()
 {
    std::cout << "Ending kernelDB\n";
