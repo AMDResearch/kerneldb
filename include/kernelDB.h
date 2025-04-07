@@ -127,6 +127,7 @@ public:
     size_t addFileName(const std::string& name);
     void getLineNumbers(std::vector<uint32_t>& out);
     const std::vector<instruction_t>& getInstructionsForLine(uint32_t line);
+    std::vector<instruction_t> getInstructionsForLine(uint32_t line, const std::string& match);
     std::string getFileName(size_t index) {return file_names_[index];}
 private:
     std::string name_;
@@ -151,6 +152,7 @@ public:
     void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);
     bool addKernel(std::unique_ptr<CDNAKernel> kernel);
     const std::vector<instruction_t>& getInstructionsForLine(const std::string& kernel_name, uint32_t line);
+    std::vector<instruction_t> getInstructionsForLine(const std::string& kernel_name, uint32_t line, const std::string& match);
     void getKernels(std::vector<std::string>& out);
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
     std::string getFileName(const std::string& kernel, size_t index);

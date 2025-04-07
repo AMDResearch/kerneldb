@@ -420,16 +420,21 @@ bool kernelDB::parseDisassembly(const std::string& text)
                     }
                     std::vector<std::string> inst_tokens;
                     instruction_t inst;
-                    split(tokens[0], inst_tokens, "_", false);
-                    if (inst_tokens.size() > 2 && (inst_tokens[1] == "load" || inst_tokens[1] == "store"))
+
+                    // If there is more than one token and the first token contains underscores that means it's an instruction line 
+                    if (tokens.size() > 1 && tokens[0].find("_") != std::string::npos)
                     {
-                        inst.prefix_ = inst_tokens[0];
-                        inst.type_ = inst_tokens[1];
-                        inst.size_ = inst_tokens[2];
+                        split(tokens[0], inst_tokens, "_", false);
+                        if (inst_tokens.size() > 2 && (inst_tokens[1] == "load" || inst_tokens[1] == "store"))
+                        {
+                            inst.prefix_ = inst_tokens[0];
+                            inst.type_ = inst_tokens[1];
+                            inst.size_ = inst_tokens[2];
+                        }
                         inst.inst_ = tokens[0];
                         inst.disassembly_ = line;
-                        for (size_t i = 3; i < inst_tokens.size(); i++)
-                            inst.operands_.push_back(inst_tokens[i]);
+                        for (size_t i = 1; i < tokens.size() && tokens[i].find("//") == std::string::npos; i++)
+                            inst.operands_.push_back(tokens[i]);
                         size_t i = 1;
                         while (tokens[i].find("//") == std::string::npos)
                             i++;
@@ -437,6 +442,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         // remove the ending colon
                         strAddress.pop_back();
                         inst.address_ = std::stoull(strAddress, nullptr, 16);
+                        inst.block_ = current_block;
                         current_block->addInstruction(inst);
                     }
                 }
@@ -706,6 +712,16 @@ std::string kernelDB::getFileName(const std::string& kernel, size_t index)
     else
         return "";
 }
+    
+std::vector<instruction_t> kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line, const std::string& match)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    auto it = kernels_.find(getKernelName(kernel_name));
+    if (it != kernels_.end())
+        return it->second.get()->getInstructionsForLine(line, match);
+    else
+        throw std::runtime_error("Unable to find kernel " + kernel_name);
+}
 
 const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
 {
@@ -817,6 +833,30 @@ void CDNAKernel::addInstructionForLine(uint64_t line, const instruction_t& instr
         line_map_[line] = {instruction};
     else
         it->second.push_back(instruction);
+}
+
+std::vector<instruction_t> CDNAKernel::getInstructionsForLine(uint32_t line, const std::string& match)
+{
+   std::shared_lock<std::shared_mutex> lock(mutex_);
+   auto it = line_map_.find(line);
+   std::vector<instruction_t> result;
+   if (it != line_map_.end())
+   {
+       if (match.length())
+       {
+           std::regex pattern(match);
+           for(auto inst : it->second)
+           {
+               if (std::regex_match(inst.inst_, pattern))
+                   result.push_back(inst);
+           }
+       }
+       else
+           result = it->second;
+       return result;
+   }
+   else
+       throw std::runtime_error("Unable to find instructions for line.");
 }
 
 const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint32_t line)
