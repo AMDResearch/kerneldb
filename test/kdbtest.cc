@@ -33,7 +33,7 @@ int main(int argc, char **argv)
                         for(size_t idx = 0; idx < inst.size(); idx++)
                         //for (const auto& item : inst)
                         {
-                            std::cout << "Default Disassembly: " << inst[idx].disassembly_ << std::endl;
+                            std::cout << "Default Disassembly[" << inst[idx].column_ << "]: " << inst[idx].disassembly_ << std::endl;
                         }
 
                         // Filtered
