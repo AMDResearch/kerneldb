@@ -143,7 +143,7 @@ public:
     void getLineNumbers(std::vector<uint32_t>& out);
     const std::vector<instruction_t>& getInstructionsForLine(uint32_t line);
     std::vector<instruction_t> getInstructionsForLine(uint32_t line, const std::string& match);
-    std::string getFileName(size_t index) {return file_names_[index];}
+    std::string getFileName(size_t index) {assert(index <= file_names_.size()); return file_names_[index-1];}
 private:
     std::string name_;
     std::string disassembly_;

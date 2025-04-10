@@ -34,6 +34,7 @@ int main(int argc, char **argv)
                         //for (const auto& item : inst)
                         {
                             std::cout << "Default Disassembly[" << inst[idx].column_ << "]: " << inst[idx].disassembly_ << std::endl;
+                                std::cout << test.getFileName(kernel, inst[idx].path_id_) << std::endl;
                         }
 
                         // Filtered
