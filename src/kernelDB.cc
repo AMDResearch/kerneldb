@@ -23,7 +23,7 @@ THE SOFTWARE.
 #include <iostream>
 #include <sstream>
 
-#include "llvm/DebugInfo/DWARF/DWARFContext.h"
+/*#include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/DebugInfo/DWARF/DWARFDie.h"
 #include "llvm/DebugInfo/DWARF/DWARFUnit.h"
 #include "llvm/Object/ELFObjectFile.h"
@@ -31,8 +31,13 @@ THE SOFTWARE.
 #include "llvm/Object/SymbolSize.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/raw_ostream.h"*/
 #include <elf.h>
+extern "C"
+{
+#include "libdwarf-0/dwarf.h"
+#include "libdwarf-0/libdwarf.h"
+}
 
 #include "include/kernelDB.h"
 
@@ -277,7 +282,8 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         std::vector<uint8_t> bits;
         try
         {
-            getElfSectionBits(name, FATBIN_SECTION, bits);
+            size_t offset;
+            getElfSectionBits(name, FATBIN_SECTION, offset, bits);
         }
         catch (const std::runtime_error e)
         {
@@ -458,7 +464,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
     return bReturn;
 }
 
-void kernelDB::getElfSectionBits(const std::string &fileName, const std::string &sectionName, std::vector<uint8_t>& sectionData ) {
+void kernelDB::getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData ) {
     std::ifstream file(fileName, std::ios::binary);
     if (!file) {
         throw std::runtime_error("Could not open file: " + fileName);
@@ -491,6 +497,7 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
         std::string currentSectionName(&shstrtabData[section.sh_name]);
 
         if (currentSectionName == sectionName) {
+            offset = section.sh_offset;
             // Read the section data
             sectionData.resize(section.sh_size);
             file.seekg(section.sh_offset, std::ios::beg);
@@ -502,8 +509,8 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
     throw std::runtime_error("Section not found: " + sectionName);
 }
 
-using namespace llvm;
-using namespace llvm::object;
+//using namespace llvm;
+//using namespace llvm::object;
 
 amd_comgr_code_object_info_t kernelDB::getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
@@ -536,7 +543,7 @@ amd_comgr_code_object_info_t kernelDB::getCodeObjectInfo(hsa_agent_t agent, std:
     return {0,0,0};
 }
 
-void kernelDB::dumpDwarfInfo(const char *elfFilePath, void * val)
+/*void kernelDB::dumpDwarfInfo(const char *elfFilePath, void * val)
 {
     llvm::MemoryBuffer *pVal = static_cast<llvm::MemoryBuffer *>(val);
     if (pVal)
@@ -581,8 +588,53 @@ void kernelDB::dumpDwarfInfo(const char *elfFilePath, void * val)
         }
     }
 }
+*/
+void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath)
+{
+    std::map<Dwarf_Addr, SourceLocation> addrMap;
+    if (buildDwarfAddressMap(elfFilePath, offset, hsaco_length, addrMap))
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = kernels_.begin();
+        while(it != kernels_.end())
+        {
 
-void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
+            const auto& blocks = it->second.get()->getBasicBlocks();
+            //for (size_t i=0; i < blocks.size(); i++)
+            for (const auto& block : blocks)
+            {
+                const auto& instructions = block.get()->getInstructions();
+                for(auto& instruction : instructions)
+                {
+                    bool bSuccess;
+
+                    try
+                    {
+                        SourceLocation source = getSourceLocation(addrMap, instruction.address_);
+                        instruction_t inst = instruction;
+                        inst.line_ = source.lineNumber;
+                        inst.column_ = source.columnNumber;
+                        inst.block_ = block.get();
+                        inst.path_id_ = it->second.get()->addFileName(source.fileName);
+                        it->second.get()->addLine(source.lineNumber, inst);
+                        //std::cout << "Added a line\n";
+                    }
+                    catch(std::runtime_error e)
+                    {
+                        std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
+                    }
+                }
+                //std::cout << "Added a block\n";
+            }
+            it++;
+        }
+    }
+    else
+        throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
+
+}
+
+/*void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
 {
     MemoryBuffer *pVal = static_cast<MemoryBuffer *>(buff);
     if (pVal)
@@ -603,18 +655,6 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
         // Create DWARF context
         auto DICtx = DWARFContext::create(*ELF);
 
-        // Iterate over compilation units
-        for (const auto &CU : DICtx->compile_units()) {
-            if (!CU)
-                continue;
-
-            // Get the line table
-            const auto &LineTable = DICtx->getLineTableForUnit(CU.get());
-
-            if (!LineTable)
-                continue;
-
-        }
         for (const auto &CU : DICtx->compile_units()) {
             if (!CU)
                 continue;
@@ -666,27 +706,30 @@ void kernelDB::buildLineMap(void *buff, const char *elfFilePath)
         }
     }
 }
-
+*/
 void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
     std::string strFile(elfFilePath);
-    std::unique_ptr<MemoryBuffer> pBuff;
-    MemoryBuffer *pVal = NULL;
+    /*std::unique_ptr<MemoryBuffer> pBuff;
+    MemoryBuffer *pVal = NULL;*/
     if (!strFile.ends_with(".hsaco"))
     {
+        size_t section_offset = 0;
         std::vector<uint8_t> bits;
-        getElfSectionBits(strFile, std::string(".hip_fatbin"), bits);
+        getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
         amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
         if (info.size)
         {
-            llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
+            /*llvm::StringRef ref(reinterpret_cast<char *>(bits.data() + info.offset), info.size);
             pBuff = MemoryBuffer::getMemBuffer(ref);
             //dumpDwarfInfo(elfFilePath, pBuff.get());
-            buildLineMap(pBuff.get(), elfFilePath);
+            //buildLineMap(pBuff.get(), elfFilePath);*/
+            buildLineMap(section_offset + info.offset, info.size, elfFilePath);
         }
     }
     else
     {
-        // Open HSACO file
+        buildLineMap(0, 0, elfFilePath);
+       /* // Open HSACO file
         auto FileOrErr = MemoryBuffer::getFile(elfFilePath);
         if (!FileOrErr) {
             errs() << "Error reading file: " << elfFilePath << "\n";
@@ -695,8 +738,9 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         else
         {
             //dumpDwarfInfo(elfFilePath, FileOrErr->get());
-            buildLineMap(FileOrErr->get(), elfFilePath);
-        }
+            //buildLineMap(FileOrErr->get(), elfFilePath);
+            buildLineMap((size_t)0, elfFilePath);
+        }*/
     }
 }
 

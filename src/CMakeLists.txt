@@ -23,7 +23,9 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 
 set ( TARGET_LIB "${TARGET_NAME}" )
 set ( LIB_SRC
+#  ${LIB_DIR}/utils.cc
   ${LIB_DIR}/kernelDB.cc
+  ${LIB_DIR}/addressMap.cc
 )
 
 
@@ -53,7 +55,7 @@ target_include_directories (
 )
 
 execute_process(
-    COMMAND /bin/sh -c "${ROCM_LLVM}/bin/llvm-config --libs all | awk '{for (i=1; i<=NF; i++) printf(\"%s;\",substr($i, 3))}'"
+    COMMAND /bin/sh -c "${ROCM_LLVM}/bin/llvm-config --libs all  | awk '{for (i=1; i<=NF; i++) printf(\"%s;\",substr($i, 3))}'"
     OUTPUT_VARIABLE LLVM_LIBS
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
@@ -76,7 +78,8 @@ target_link_libraries(
     amd_comgr
     z
     zstd
-    ${LLVM_LIBS}
+    dwarf
+#    ${LLVM_LIBS}
 )
 
 file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
