@@ -25,6 +25,33 @@ std::optional<Dwarf_Addr> find_floor_key(const std::map<Dwarf_Addr, T>& map, Dwa
     return it->first;
 }
 
+void process_function_die(Dwarf_Debug dbg, Dwarf_Die die) {
+    Dwarf_Attribute *attrs;
+    Dwarf_Signed attr_count;
+    Dwarf_Error err;
+
+    // Get all attributes of the DIE
+    if (dwarf_attrlist(die, &attrs, &attr_count, &err) == DW_DLV_OK) {
+        for (int i = 0; i < attr_count; i++) {
+            Dwarf_Half attr;
+            if (dwarf_whatattr(attrs[i], &attr, &err) == DW_DLV_OK) {
+                if (attr == DW_AT_decl_line) {
+                    Dwarf_Unsigned line_num;
+                    if (dwarf_formudata(attrs[i], &line_num, &err) == DW_DLV_OK) {
+                        printf("Function declared at line: %llu\n", line_num);
+                    }
+                }
+                // Optionally, also check DW_AT_decl_file for the file name
+            }
+        }
+        // Clean up attributes
+        for (int i = 0; i < attr_count; i++) {
+            dwarf_dealloc(dbg, attrs[i], DW_DLA_ATTR);
+        }
+        dwarf_dealloc(dbg, attrs, DW_DLA_LIST);
+    }
+}
+
 
 SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr)
 {
