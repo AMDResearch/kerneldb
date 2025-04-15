@@ -28,12 +28,23 @@ int main(int argc, char **argv)
                     std::cout << "Line for " << kernel << " " << line << std::endl;
                     try
                     {
+                        // Old Style
                         const auto& inst = test.getInstructionsForLine(kernel, line);
                         for(size_t idx = 0; idx < inst.size(); idx++)
                         //for (const auto& item : inst)
                         {
-                            std::cout << "Disassembly: " << inst[idx].disassembly_ << std::endl;
+                            std::cout << "Default Disassembly[" << inst[idx].column_ << "]: " << inst[idx].disassembly_ << std::endl;
+                                std::cout << test.getFileName(kernel, inst[idx].path_id_) << std::endl;
                         }
+
+                        // Filtered
+                        std::vector<kernelDB::instruction_t> filtered = test.getInstructionsForLine(kernel, line, std::string(".*(load|store).*"));
+                        for(size_t idx = 0; idx < filtered.size(); idx++)
+                        //for (const auto& item : inst)
+                        {
+                            std::cout << "Filtered Disassembly: " << filtered[idx].disassembly_ << std::endl;
+                        }
+
                     }
                     catch(std::runtime_error e)
                     {

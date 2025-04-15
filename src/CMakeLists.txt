@@ -23,7 +23,9 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 
 set ( TARGET_LIB "${TARGET_NAME}" )
 set ( LIB_SRC
+#  ${LIB_DIR}/utils.cc
   ${LIB_DIR}/kernelDB.cc
+  ${LIB_DIR}/addressMap.cc
 )
 
 
@@ -36,9 +38,8 @@ else()
   set(ROCM_PATH "/opt/rocm")
 endif()
 message("ROCM_PATH: ${ROCM_PATH}")
-set(ROCM_LLVM "${ROCM_PATH}/llvm" CACHE PATH "Path to the ROCm LLVM directory")
 
-link_directories(${ROCM_ROOT_DIR}/lib $ENV{HOME}/.local/lib64 ${ROCM_LLVM}/lib)
+link_directories(${ROCM_ROOT_DIR}/lib $ENV{HOME}/.local/lib64)
 add_library ( ${TARGET_LIB} SHARED ${LIB_SRC})
 
 target_include_directories (
@@ -49,16 +50,8 @@ target_include_directories (
     ${ROOT_DIR}
     ${HSA_RUNTIME_INC_PATH}
     ${HSA_KMT_LIB_PATH}/..
-    ${ROCM_LLVM}/include
 )
 
-execute_process(
-    COMMAND /bin/sh -c "${ROCM_LLVM}/bin/llvm-config --libs all | awk '{for (i=1; i<=NF; i++) printf(\"%s;\",substr($i, 3))}'"
-    OUTPUT_VARIABLE LLVM_LIBS
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-message(STATUS "LLVM Link Libraries: ${LLVM_LIBS}")
 
 target_compile_options(
     ${TARGET_LIB}
@@ -76,7 +69,7 @@ target_link_libraries(
     amd_comgr
     z
     zstd
-    ${LLVM_LIBS}
+    dwarf
 )
 
 file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
