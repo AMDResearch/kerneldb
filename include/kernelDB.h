@@ -77,7 +77,7 @@ struct SourceLocation {
     Dwarf_Unsigned lineNumber;
     Dwarf_Unsigned columnNumber;
 
-    SourceLocation(const std::string& file = "", Dwarf_Unsigned line = 0, Dwarf_Unsigned col = 0, uint32_t d_line=0)
+    SourceLocation(const std::string& file = "", Dwarf_Unsigned line = 0, Dwarf_Unsigned col = 0)
         : fileName(file), lineNumber(line), columnNumber(col) {}
 };
 
