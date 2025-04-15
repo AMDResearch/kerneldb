@@ -25,10 +25,26 @@ std::optional<Dwarf_Addr> find_floor_key(const std::map<Dwarf_Addr, T>& map, Dwa
     return it->first;
 }
 
-void process_function_die(Dwarf_Debug dbg, Dwarf_Die die) {
+bool is_subprogram(Dwarf_Die die, Dwarf_Error *error) {
+    Dwarf_Half tag;
+    int result = dwarf_tag(die, &tag, error);
+    if (result != DW_DLV_OK) 
+    {
+        printf("Error getting subprogram tag\n");
+        return 0; // Error occurred
+    }
+    if (tag == DW_TAG_subprogram)
+        printf("Found a subprogram\n");
+    else
+        printf("Don't know what this tag is: %u\n", tag);
+    return tag == DW_TAG_subprogram;
+}
+
+bool process_function_die(Dwarf_Debug dbg, Dwarf_Die die, uint32_t& decl_line) {
     Dwarf_Attribute *attrs;
     Dwarf_Signed attr_count;
     Dwarf_Error err;
+    bool bResult = false;
 
     // Get all attributes of the DIE
     if (dwarf_attrlist(die, &attrs, &attr_count, &err) == DW_DLV_OK) {
@@ -38,7 +54,10 @@ void process_function_die(Dwarf_Debug dbg, Dwarf_Die die) {
                 if (attr == DW_AT_decl_line) {
                     Dwarf_Unsigned line_num;
                     if (dwarf_formudata(attrs[i], &line_num, &err) == DW_DLV_OK) {
+                        decl_line = line_num;
                         printf("Function declared at line: %llu\n", line_num);
+                        bResult = true;
+                        break;
                     }
                 }
                 // Optionally, also check DW_AT_decl_file for the file name
@@ -50,6 +69,7 @@ void process_function_die(Dwarf_Debug dbg, Dwarf_Die die) {
         }
         dwarf_dealloc(dbg, attrs, DW_DLA_LIST);
     }
+    return bResult;
 }
 
 
@@ -123,6 +143,89 @@ std::string create_temp_file_segment(const std::string& filename, std::streamoff
     return std::string(temp_filename);
 }
 
+void enumerate_subprograms(Dwarf_Debug dbg, Dwarf_Die cu_die) {
+    Dwarf_Die child_die = NULL;
+    Dwarf_Die sibling_die = NULL;
+    Dwarf_Error err;
+    int result;
+    char **srcfiles;
+    Dwarf_Signed file_count = 0;
+    if(dwarf_srcfiles(cu_die, &srcfiles, &file_count, &err) != DW_DLV_OK) {
+        printf("Source file information for declarations is not available.\n");
+    }
+    printf("File Count: %lld\n", file_count);
+
+    // Get the first child of the compile unit DIE
+    result = dwarf_child(cu_die, &child_die, &err);
+    if (result == DW_DLV_OK){
+
+        do {
+            Dwarf_Half tag;
+            if (dwarf_tag(child_die, &tag, &err) == DW_DLV_OK) {
+                if (tag == DW_TAG_subprogram) {
+                    // Found a subprogram DIE
+                    char *name = NULL, *file_name = NULL;
+                    Dwarf_Unsigned decl_line = 0;
+
+                    // Extract DW_AT_name
+                    Dwarf_Attribute name_attr;
+                    if (dwarf_attr(child_die, DW_AT_name, &name_attr, &err) == DW_DLV_OK) {
+                        dwarf_formstring(name_attr, &name, &err);
+                        printf("Subprogram: %s\n", name);
+                        dwarf_dealloc_attribute(name_attr);
+                    }
+                    
+                    Dwarf_Attribute file_attr;
+                    Dwarf_Unsigned file_index = 0;
+                    if (dwarf_attr(child_die, DW_AT_decl_file, &file_attr, &err) == DW_DLV_OK) {
+                        dwarf_formudata(file_attr, &file_index, &err);
+                        printf("File Index: %llu\n", file_index);
+                        if (file_index > 0 && srcfiles)
+                            printf("File name: %s\n", srcfiles[file_index - 1]);
+                        dwarf_dealloc_attribute(file_attr);
+                    }
+
+                    // Extract DW_AT_decl_line
+                    Dwarf_Attribute line_attr;
+                    if (dwarf_attr(child_die, DW_AT_decl_line, &line_attr, &err) == DW_DLV_OK) {
+                        dwarf_formudata(line_attr, &decl_line, &err);
+                        printf("Decl Line Number: %llu\n", decl_line);
+                        dwarf_dealloc_attribute(line_attr);
+                    }
+
+                    // Print subprogram details
+                    printf("Subprogram: %s, Declared at line: %llu\n",
+                           name ? name : "<no name>", decl_line);
+                }
+            }
+            // Move to the next sibling
+            sibling_die = NULL;
+            if (dwarf_siblingof_b(dbg, child_die, true, &sibling_die, &err) != DW_DLV_OK) {
+                break;
+            }
+            dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+            child_die = sibling_die;
+        } while (child_die != NULL);
+        if (child_die) {
+            dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+        }
+    }
+    else
+    {
+        // Extract DW_AT_decl_line
+        Dwarf_Attribute line_attr;
+        Dwarf_Unsigned decl_line = 0;
+        if (dwarf_attr(cu_die, DW_AT_decl_line, &line_attr, &err) == DW_DLV_OK) {
+            dwarf_formudata(line_attr, &decl_line, &err);
+            printf("CU Decl Line Number: %llu\n", decl_line);
+            dwarf_dealloc_attribute(line_attr);
+        }
+    }
+    if (srcfiles)
+        dwarf_dealloc(dbg, srcfiles, DW_DLA_LIST);
+}
+
+
 // Function to build address-to-source-location map
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap) {
 
@@ -139,12 +242,6 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
         throw std::runtime_error("Failed to open file");
     }
     
-    /*off_t new_offset = lseek(fd, offset, SEEK_SET);
-    if (new_offset == (off_t)-1) {
-        perror("lseek failed");
-        close(fd);
-        throw std::runtime_error("Unable to read " + std::string(filename));
-    }*/
 
     // Initialize DWARF
     Dwarf_Debug dbg;
@@ -155,6 +252,7 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     }
 
     // Iterate through all compilation units
+    uint32_t decl_line = UINT32_MAX;;
     Dwarf_Unsigned cu_header_length;
     Dwarf_Half version_stamp;
     Dwarf_Unsigned abbrev_offset;
@@ -164,13 +262,12 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     while (dwarf_next_cu_header_d(dbg, true, &cu_header_length, &version_stamp, &abbrev_offset,
                                 &address_size, &length_size, &extension_size, &type_sig, &type_offset, 
                                 &next_cu_header, &header_cu_type, &err) == DW_DLV_OK) {
-    /*while (dwarf_next_cu_header_d(dbg, NULL, &cu_header_length, &version_stamp,
-                                 &abbrev_offset, &address_size, NULL, NULL,
-                                 &next_cu_header, NULL, &err) == DW_DLV_OK) {*/
         Dwarf_Die cu_die = 0;
         if (dwarf_siblingof_b(dbg, NULL, true, &cu_die, &err) != DW_DLV_OK) {
             continue;
         }
+
+        //enumerate_subprograms(dbg, cu_die);
 
         // Get line table for this CU
         Dwarf_Line* linebuf;

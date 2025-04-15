@@ -77,7 +77,7 @@ struct SourceLocation {
     Dwarf_Unsigned lineNumber;
     Dwarf_Unsigned columnNumber;
 
-    SourceLocation(const std::string& file = "", Dwarf_Unsigned line = 0, Dwarf_Unsigned col = 0)
+    SourceLocation(const std::string& file = "", Dwarf_Unsigned line = 0, Dwarf_Unsigned col = 0, uint32_t d_line=0)
         : fileName(file), lineNumber(line), columnNumber(col) {}
 };
 
@@ -144,6 +144,7 @@ public:
     const std::vector<instruction_t>& getInstructionsForLine(uint32_t line);
     std::vector<instruction_t> getInstructionsForLine(uint32_t line, const std::string& match);
     std::string getFileName(size_t index) {assert(index <= file_names_.size()); return file_names_[index-1];}
+    void getSourceCode(std::vector<std::string>& outputLines);
 private:
     std::string name_;
     std::string disassembly_;
@@ -171,11 +172,9 @@ public:
     void getKernels(std::vector<std::string>& out);
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
     std::string getFileName(const std::string& kernel, size_t index);
-    static void dumpDwarfInfo(const char *elfFilePath, void * val);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
 private:
-    void buildLineMap(void *buff, const char *elfFilePath);
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     parse_mode getLineType(std::string& line);
     static bool isBranch(const std::string& instruction);
