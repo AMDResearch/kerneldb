@@ -145,18 +145,19 @@ else()
   include_directories(${LIBDWARF_INCLUDE_DIR})
 endif()
 
-# Try to detect the Ubuntu-specific signature
-try_compile(HAS_UBUNTU_LIBDWARF
-    ${CMAKE_BINARY_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/test_dwarf_init_b.cpp
-    COMPILE_DEFINITIONS "-DTEST_UBUNTU_LIBDWARF"
-    OUTPUT_VARIABLE OUTPUT
-)
-if(HAS_UBUNTU_LIBDWARF)
-    message(STATUS "Detected Ubuntu-specific libdwarf version")
-    add_definitions(-DUBUNTU_LIBDWARF)
+# Check the Linux distribution by examining /etc/os-release
+# Certain macros are defined for Ubuntu 
+if(EXISTS "/etc/os-release")
+    file(READ "/etc/os-release" OS_RELEASE_CONTENT)
+    string(FIND "${OS_RELEASE_CONTENT}" "ID=ubuntu" FOUND_UBUNTU)
+    if(NOT FOUND_UBUNTU EQUAL -1)
+        message(STATUS "Detected Ubuntu Linux distribution")
+        add_definitions(-DUBUNTU_LIBDWARF)
+    else()
+        message(STATUS "Detected non-Ubuntu Linux distribution (e.g., RHEL9 or other)")
+    endif()
 else()
-    message(STATUS "Using default libdwarf version (RHEL9 or other)")
+    message(WARNING "/etc/os-release not found. Unable to determine Linux distribution.")
 endif()
 
 # Fallback option to allow the user to manually specify libdwarf version
