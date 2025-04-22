@@ -67,8 +67,8 @@ THE SOFTWARE.
 #include <hsa_ven_amd_loader.h>
 #include <amd_comgr/amd_comgr.h>
 extern "C"{
-#include "libdwarf-0/libdwarf.h"
-#include "libdwarf-0/dwarf.h"
+#include "libdwarf.h"
+#include "dwarf.h"
 }
 
 // Structure to hold source location info

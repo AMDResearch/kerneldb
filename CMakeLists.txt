@@ -126,6 +126,25 @@ if (NOT USE_PROF_API)
   set(USE_PROF_API 1)
 endif()
 
+# Find the libdwarf headers
+find_path(LIBDWARF_INCLUDE_DIR
+  NAMES libdwarf.h dwarf.h
+  HINTS ${CMAKE_INSTALL_PREFIX}
+  PATHS
+    ${CMAKE_INSTALL_PREFIX}
+    /usr/include/libdwarf-0
+    /usr/include/libdwarf
+    /usr/local/include/libdwarf-0
+    /usr/local/include/libdwarf
+  DOC "Path to libdwarf header files")
+
+  if(NOT LIBDWARF_INCLUDE_DIR)
+  message(FATAL_ERROR "libdwarf headers not found. Please install libdwarf or specify the include path.")
+else()
+  message(STATUS "Found libdwarf headers in: ${LIBDWARF_INCLUDE_DIR}")
+  include_directories(${LIBDWARF_INCLUDE_DIR})
+endif()
+
 # Build libraries
 include(${LIB_DIR}/CMakeLists.txt)
 include(test/CMakeLists.txt)
