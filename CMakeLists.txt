@@ -129,20 +129,40 @@ endif()
 # Find the libdwarf headers
 find_path(LIBDWARF_INCLUDE_DIR
   NAMES libdwarf.h dwarf.h
-  HINTS ${CMAKE_INSTALL_PREFIX}
+  HINTS ${CMAKE_INCLUDE_PATH}
   PATHS
-    ${CMAKE_INSTALL_PREFIX}
+    ${CMAKE_INCLUDE_PATH}
     /usr/include/libdwarf-0
     /usr/include/libdwarf
     /usr/local/include/libdwarf-0
     /usr/local/include/libdwarf
   DOC "Path to libdwarf header files")
 
-  if(NOT LIBDWARF_INCLUDE_DIR)
+if(NOT LIBDWARF_INCLUDE_DIR)
   message(FATAL_ERROR "libdwarf headers not found. Please install libdwarf or specify the include path.")
 else()
   message(STATUS "Found libdwarf headers in: ${LIBDWARF_INCLUDE_DIR}")
   include_directories(${LIBDWARF_INCLUDE_DIR})
+endif()
+
+# Try to detect the Ubuntu-specific signature
+try_compile(HAS_UBUNTU_LIBDWARF
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/test_dwarf_init_b.cpp
+    COMPILE_DEFINITIONS "-DTEST_UBUNTU_LIBDWARF"
+    OUTPUT_VARIABLE OUTPUT
+)
+if(HAS_UBUNTU_LIBDWARF)
+    message(STATUS "Detected Ubuntu-specific libdwarf version")
+    add_definitions(-DUBUNTU_LIBDWARF)
+else()
+    message(STATUS "Using default libdwarf version (RHEL9 or other)")
+endif()
+
+# Fallback option to allow the user to manually specify libdwarf version
+option(USE_UBUNTU_LIBDWARF "Use Ubuntu-specific libdwarf version" OFF)
+if(USE_UBUNTU_LIBDWARF)
+    add_definitions(-DUBUNTU_LIBDWARF)
 endif()
 
 # Build libraries
