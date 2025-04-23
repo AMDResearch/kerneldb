@@ -343,7 +343,12 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     }
 
     // Final cleanup
+    // Define a macro to handle the different signatures of dwarf_finish
+    #if defined(UBUNTU_LIBDWARF) // Define this macro for Ubuntu builds
+    dwarf_finish(dbg, &err);
+    #else // Default to RHEL9 or other versions
     dwarf_finish(dbg);
+    #endif
     close(fd);
 
     if (offset != 0)
