@@ -50,6 +50,7 @@ target_include_directories (
     ${ROOT_DIR}
     ${HSA_RUNTIME_INC_PATH}
     ${HSA_KMT_LIB_PATH}/..
+    ${LIBDWARF_INCLUDE_DIR}
 )
 
 
