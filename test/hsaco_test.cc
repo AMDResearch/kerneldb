@@ -62,18 +62,27 @@ int main() {
   test.getKernels(kernels);
 
   std::cout << "Number of kernels: " << kernels.size() << std::endl;
-  for (auto kernel_str : kernels) {
+  int kenrel_id = 0;
+  for (const auto& kernel_str : kernels) {
     auto& kernel = test.getKernel(kernel_str);
 
     std::cout << kernel.getName() << std::endl;
 
     std::vector<std::string> outputLine;
-    kernel.getSourceCode(outputLine);
+    const auto& bb = kernel.getBasicBlocks();
 
     std::cout << "Number of lines: " << outputLine.size() << std::endl;
+    kenrel_id++;
 
-    for (auto& l : outputLine) {
-      std::cout << l << std::endl;
+    for (const auto& b : bb) {
+      const auto& isa = b->getInstructions();
+      for (auto& inst : isa){
+        std::cout << inst.disassembly_ << std::endl;
+      }
+    }
+
+    if (kenrel_id  == 2){
+      break;
     }
     std::vector<uint32_t> lines;
     // const auto gcn = test.getInstructions(kernel, lines);
