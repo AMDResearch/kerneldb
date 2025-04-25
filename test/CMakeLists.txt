@@ -21,10 +21,6 @@
 ################################################################################
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 
-set ( TEST_APP "kdbtest" )
-set ( TEST_SRC
-  ${TEST_DIR}/kdbtest.cc
-)
 
 # Default ROCm path can be infered
 if(DEFINED ENV{ROCM_PATH})
@@ -38,40 +34,38 @@ set(ROCM_LLVM "${ROCM_PATH}/llvm" CACHE PATH "Path to the ROCm LLVM directory")
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 link_directories(${ROCM_ROOT_DIR}/lib $ENV{HOME}/.local/lib64)
-add_executable ( ${TEST_APP} ${TEST_SRC})
 
-target_include_directories (
-    ${TEST_APP}
-  PRIVATE
-    ${LIB_DIR}
-    ${ROCM_ROOT_DIR}/include
-    ${ROOT_DIR}
-    ${HSA_RUNTIME_INC_PATH}
-    ${HSA_KMT_LIB_PATH}/..
-    ${ROCM_LLVM}/include
-)
+set(TEST_APPS hsaco_test kdbtest)
 
-# Note: Changed this to use ROCM_LLVM. Comparing output from llvm-config in ROCm and Triton LLVM, they are the same.
-execute_process(
-    COMMAND /bin/sh -c "${ROCM_LLVM}/bin/llvm-config --libs all | awk '{for (i=1; i<=NF; i++) printf(\"%s;\",substr($i, 3))}'"
-    OUTPUT_VARIABLE LLVM_LIBS
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+foreach(TEST_APP IN LISTS TEST_APPS)
+  set(TEST_SRC "${TEST_DIR}/${TEST_APP}.cc")
+  add_executable ( ${TEST_APP} ${TEST_SRC})
+  target_include_directories (
+      ${TEST_APP}
+    PRIVATE
+      ${LIB_DIR}
+      ${ROCM_ROOT_DIR}/include
+      ${ROOT_DIR}
+      ${HSA_RUNTIME_INC_PATH}
+      ${HSA_KMT_LIB_PATH}/..
+      ${ROCM_LLVM}/include
+  )
 
-target_compile_options(
-    ${TEST_APP}
-  PRIVATE
-    -O0
-)
+  target_compile_options(
+      ${TEST_APP}
+    PRIVATE
+      -O0
+  )
 
 
-target_link_libraries(
-    ${TEST_APP}
-  PRIVATE
-    ${HSA_RUNTIME_LIB}
-    c
-    stdc++
-    stdc++fs
-    kernelDB64
-)
+  target_link_libraries(
+      ${TEST_APP}
+    PRIVATE
+      ${HSA_RUNTIME_LIB}
+      c
+      stdc++
+      stdc++fs
+      kernelDB64
+  )
+endforeach()
 
