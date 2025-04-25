@@ -38,7 +38,7 @@ hsa_agent_t get_first_gpu_agent() {
 
 int main() {
   hsa_init();
-  
+
   std::filesystem::path file_path =
       "/opt/rocm-6.3.1/lib/hipblaslt/library/"
       "Kernels.so-000-gfx90a-xnack+.hsaco";
@@ -51,8 +51,64 @@ int main() {
   auto gpu_agent = get_first_gpu_agent();
 
   kernelDB::kernelDB test(gpu_agent);
+  std::cout << "Adding the file" << std::endl;
+  auto result = test.addFile(file_path.c_str(), gpu_agent, "");
 
-  test.addFile(file_path.c_str(), gpu_agent, "");
+  std::cout << "Result: " << result << std::endl;
+  std::vector<std::string> kernels;
+  std::vector<uint32_t> lines;
 
+  std::cout << "Get kernels: " << std::endl;
+  test.getKernels(kernels);
+
+  std::cout << "Number of kernels: " << kernels.size() << std::endl;
+  for (auto kernel_str : kernels) {
+    auto& kernel = test.getKernel(kernel_str);
+
+    std::cout << kernel.getName() << std::endl;
+
+    std::vector<std::string> outputLine;
+    kernel.getSourceCode(outputLine);
+
+    std::cout << "Number of lines: " << outputLine.size() << std::endl;
+
+    for (auto& l : outputLine) {
+      std::cout << l << std::endl;
+    }
+    std::vector<uint32_t> lines;
+    // const auto gcn = test.getInstructions(kernel, lines);
+    // for (auto i : gcn){
+    //   std::cout << i.disassembly_ << std::endl;
+    // }
+    // for (auto& line : lines) {
+    //   std::cout << "Line for " << kernel << " " << line << std::endl;
+    //   try {
+    //     // Old Style
+    //     const auto& inst = test.getInstructionsForLine(kernel, line);
+    //     for (size_t idx = 0; idx < inst.size(); idx++)
+    //     // for (const auto& item : inst)
+    //     {
+    //       std::cout << "Default Disassembly[" << inst[idx].column_
+    //                 << "]: " << inst[idx].disassembly_ << std::endl;
+    //       std::cout << test.getFileName(kernel, inst[idx].path_id_)
+    //                 << std::endl;
+    //     }
+
+    //     // Filtered
+    //     std::vector<kernelDB::instruction_t> filtered =
+    //         test.getInstructionsForLine(kernel, line,
+    //                                     std::string(".*(load|store).*"));
+    //     for (size_t idx = 0; idx < filtered.size(); idx++)
+    //     // for (const auto& item : inst)
+    //     {
+    //       std::cout << "Filtered Disassembly: " << filtered[idx].disassembly_
+    //                 << std::endl;
+    //     }
+
+    //   } catch (std::runtime_error e) {
+    //     std::cout << "Error: " << e.what() << std::endl;
+    //   }
+    // }
+  }
   return 0;
 }

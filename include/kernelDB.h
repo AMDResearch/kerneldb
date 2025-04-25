@@ -135,7 +135,7 @@ public:
     ~CDNAKernel() = default;
     size_t addBlock(std::unique_ptr<basicBlock> block);
     size_t getBlockCount() { return blocks_.size();}
-    std::string getName() { return name_;}
+    std::string getName() const { return name_;}
     const std::vector<std::unique_ptr<basicBlock>>& getBasicBlocks() {return blocks_;}
     void addInstructionForLine(uint64_t, const instruction_t& instruction);
     void addLine(uint32_t line, const instruction_t& instruction);
