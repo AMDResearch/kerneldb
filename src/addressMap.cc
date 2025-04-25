@@ -246,9 +246,17 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     // Initialize DWARF
     Dwarf_Debug dbg;
     Dwarf_Error err;
-    if (dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err) != DW_DLV_OK) {
+    int status = 0;
+    status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
+    if (status == DW_DLV_ERROR){
         close(fd);
         throw std::runtime_error(std::string("DWARF init failed: ") + dwarf_errmsg(err));
+    }
+    else if (status == DW_DLV_NO_ENTRY)
+    {
+        // No DWARF data in this file
+        close(fd);
+        return false;
     }
 
     // Iterate through all compilation units
