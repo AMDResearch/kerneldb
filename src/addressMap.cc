@@ -246,8 +246,14 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     // Initialize DWARF
     Dwarf_Debug dbg;
     Dwarf_Error err;
-    int status = 0;
-    status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
+
+    // Define a macro to handle the different signatures of dwarf_init_b
+    #if defined(UBUNTU_LIBDWARF) // Define this macro for Ubuntu builds
+    int status = dwarf_init_b(fd, DW_DLC_READ, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
+    #else // Default to RHEL9 or other versions
+    int status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
+    #endif
+    
     if (status == DW_DLV_ERROR){
         close(fd);
         throw std::runtime_error(std::string("DWARF init failed: ") + dwarf_errmsg(err));
@@ -346,7 +352,12 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     }
 
     // Final cleanup
+    // Define a macro to handle the different signatures of dwarf_finish
+    #if defined(UBUNTU_LIBDWARF) // Define this macro for Ubuntu builds
+    dwarf_finish(dbg, &err);
+    #else // Default to RHEL9 or other versions
     dwarf_finish(dbg);
+    #endif
     close(fd);
 
     if (offset != 0)

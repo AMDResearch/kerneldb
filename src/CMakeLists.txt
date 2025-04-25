@@ -50,6 +50,7 @@ target_include_directories (
     ${ROOT_DIR}
     ${HSA_RUNTIME_INC_PATH}
     ${HSA_KMT_LIB_PATH}/..
+    ${LIBDWARF_INCLUDE_DIR}
 )
 
 
@@ -71,13 +72,23 @@ target_link_libraries(
     zstd
     dwarf
 )
-
+# Install the kernelDB library and public headers
 file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
 set_target_properties(${TARGET_LIB} PROPERTIES PUBLIC_HEADER "${KERNELDB_INCLUDE_FILES}")
 include(GNUInstallDirs)
 install(TARGETS ${TARGET_LIB}
     LIBRARY DESTINATION lib
     PUBLIC_HEADER DESTINATION include/kerneldb)
+
+# Install all libdwarf headers
+if(LIBDWARF_INCLUDE_DIR)
+    install(DIRECTORY ${LIBDWARF_INCLUDE_DIR}/
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/include/kerneldb
+            FILES_MATCHING PATTERN "*.h")
+    message(STATUS "libdwarf headers installed to ${CMAKE_INSTALL_PREFIX}/include/libdwarf")
+else()
+    message(WARNING "libdwarf headers not found, not installing.")
+endif()
 
 message(STATUS "==> {Library,include} install dirs: ${CMAKE_INSTALL_PREFIX}/{${CMAKE_INSTALL_LIBDIR},${CMAKE_INSTALL_INCLUDEDIR}/kerneldb}")
 message(STATUS "==> To change install dirs, rerun cmake with argument \"-DCMAKE_INSTALL_PREFIX=/path/to/install/dir\"")

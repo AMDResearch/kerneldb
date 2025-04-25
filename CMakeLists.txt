@@ -126,6 +126,46 @@ if (NOT USE_PROF_API)
   set(USE_PROF_API 1)
 endif()
 
+# Find the libdwarf headers
+find_path(LIBDWARF_INCLUDE_DIR
+  NAMES libdwarf.h dwarf.h
+  HINTS ${CMAKE_INCLUDE_PATH}
+  PATHS
+    ${CMAKE_INCLUDE_PATH}
+    /usr/include/libdwarf-0
+    /usr/include/libdwarf
+    /usr/local/include/libdwarf-0
+    /usr/local/include/libdwarf
+  DOC "Path to libdwarf header files")
+
+if(NOT LIBDWARF_INCLUDE_DIR)
+  message(FATAL_ERROR "libdwarf headers not found. Please install libdwarf or specify the include path.")
+else()
+  message(STATUS "Found libdwarf headers in: ${LIBDWARF_INCLUDE_DIR}")
+  include_directories(${LIBDWARF_INCLUDE_DIR})
+endif()
+
+# Check the Linux distribution by examining /etc/os-release
+# Certain macros are defined for Ubuntu 
+if(EXISTS "/etc/os-release")
+    file(READ "/etc/os-release" OS_RELEASE_CONTENT)
+    string(FIND "${OS_RELEASE_CONTENT}" "ID=ubuntu" FOUND_UBUNTU)
+    if(NOT FOUND_UBUNTU EQUAL -1)
+        message(STATUS "Detected Ubuntu Linux distribution")
+        add_definitions(-DUBUNTU_LIBDWARF)
+    else()
+        message(STATUS "Detected non-Ubuntu Linux distribution (e.g., RHEL9 or other)")
+    endif()
+else()
+    message(WARNING "/etc/os-release not found. Unable to determine Linux distribution.")
+endif()
+
+# Fallback option to allow the user to manually specify libdwarf version
+option(USE_UBUNTU_LIBDWARF "Use Ubuntu-specific libdwarf version" OFF)
+if(USE_UBUNTU_LIBDWARF)
+    add_definitions(-DUBUNTU_LIBDWARF)
+endif()
+
 # Build libraries
 include(${LIB_DIR}/CMakeLists.txt)
 include(test/CMakeLists.txt)
