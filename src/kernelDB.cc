@@ -331,7 +331,15 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         CHECK_COMGR(amd_comgr_release_data(executable));
         //std::cout << strDisassembly << std::endl;
         parseDisassembly(strDisassembly);
-        mapDisassemblyToSource(agent, name.c_str());
+        try
+        {
+            mapDisassemblyToSource(agent, name.c_str());
+        }
+        catch (const std::runtime_error& e)
+        {
+            std::cerr << "Error adding " << name << "\n\t" << e.what();
+            bReturn = false;
+        }
     }
     return bReturn;
 }
