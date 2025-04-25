@@ -570,7 +570,7 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
                     }
                     catch(std::runtime_error e)
                     {
-                        std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
+                        //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
                     }
                 }
                 //std::cout << "Added a block\n";
