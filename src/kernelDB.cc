@@ -25,8 +25,8 @@ THE SOFTWARE.
 #include <elf.h>
 extern "C"
 {
-#include "libdwarf-0/dwarf.h"
-#include "libdwarf-0/libdwarf.h"
+#include "dwarf.h"
+#include "libdwarf.h"
 }
 
 #include "include/kernelDB.h"
