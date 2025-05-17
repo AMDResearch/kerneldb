@@ -561,7 +561,7 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
             //for (size_t i=0; i < blocks.size(); i++)
             for (const auto& block : blocks)
             {
-                const auto& instructions = block.get()->getInstructions();
+                auto& instructions = block.get()->getModifiableInstructions();
                 for(auto& instruction : instructions)
                 {
                     bool bSuccess;
@@ -570,10 +570,10 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
                     {
                         SourceLocation source = getSourceLocation(addrMap, instruction.address_);
                         instruction_t inst = instruction;
-                        inst.line_ = source.lineNumber;
-                        inst.column_ = source.columnNumber;
-                        inst.block_ = block.get();
-                        inst.path_id_ = it->second.get()->addFileName(source.fileName);
+                        instruction.line_ = inst.line_ = source.lineNumber;
+                        instruction.column_ = inst.column_ = source.columnNumber;
+                        instruction.block_ = inst.block_ = block.get();
+                        instruction.path_id_ = inst.path_id_ = it->second.get()->addFileName(source.fileName);
                         it->second.get()->addLine(source.lineNumber, inst);
                         //std::cout << "Added a line\n";
                     }
@@ -670,6 +670,12 @@ basicBlock::basicBlock()
 }
 
 const std::vector<instruction_t>& basicBlock::getInstructions()
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return instructions_;
+}
+
+std::vector<instruction_t>& basicBlock::getModifiableInstructions()
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     return instructions_;

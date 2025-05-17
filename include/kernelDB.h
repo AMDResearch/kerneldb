@@ -120,6 +120,7 @@ public:
     ~basicBlock() = default;
     void addInstruction(const instruction_t& instruction);
     const std::vector<instruction_t>& getInstructions();
+    std::vector<instruction_t>& getModifiableInstructions();
 private:
 private:
     uint16_t block_id;
