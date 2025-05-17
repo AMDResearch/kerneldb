@@ -129,6 +129,7 @@ private:
     std::shared_mutex mutex_;
 };
 
+
 class __attribute__((visibility("default"))) CDNAKernel {
 public:
     CDNAKernel(const std::string& name);

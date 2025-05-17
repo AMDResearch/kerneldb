@@ -53,6 +53,7 @@ static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbr
 
 #define OMNIPROBE_PREFIX "__amd_crk_"
 
+
 std::string demangleName(const char *name)
 {
    int status;
