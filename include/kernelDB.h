@@ -146,6 +146,7 @@ public:
     const std::vector<instruction_t>& getInstructionsForLine(uint32_t line);
     std::vector<instruction_t> getInstructionsForLine(uint32_t line, const std::string& match);
     std::string getFileName(size_t index) {assert(index <= file_names_.size()); return file_names_[index-1];}
+    const basicBlock *getBasicBlock(uint32_t idx) { assert(idx < blocks_.size()); return blocks_[idx].get();}
     void getSourceCode(std::vector<std::string>& outputLines);
 private:
     std::string name_;
