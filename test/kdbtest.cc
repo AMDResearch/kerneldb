@@ -25,6 +25,8 @@ int main(int argc, char **argv)
                 {
                     std::vector<uint32_t> lines;
                     test.getKernelLines(kernel, lines);
+                    auto& thisKernel = test.getKernel(kernel);
+                    std::cout << "Blocks for kernel " << kernel << ":\n\t" << thisKernel.getBlockCount() << std::endl;
                     for (auto& line : lines)
                     {
                         std::cout << "Line for " << kernel << " " << line << std::endl;

@@ -135,8 +135,8 @@ class __attribute__((visibility("default"))) CDNAKernel {
 public:
     CDNAKernel(const std::string& name);
     ~CDNAKernel() = default;
-    size_t addBlock(std::unique_ptr<basicBlock> block);
-    size_t getBlockCount() { return blocks_.size();}
+    size_t addBlock(uint32_t global_index, std::unique_ptr<basicBlock> block);
+    size_t getBlockCount();
     std::string getName() { return name_;}
     const std::vector<std::unique_ptr<basicBlock>>& getBasicBlocks() {return blocks_;}
     void addInstructionForLine(uint64_t, const instruction_t& instruction);
@@ -165,7 +165,7 @@ public:
     kernelDB(hsa_agent_t agent);
     ~kernelDB();
     bool getBasicBlocks(const std::string& name, std::vector<basicBlock>&);
-    const CDNAKernel& getKernel(const std::string& name);
+    CDNAKernel& getKernel(const std::string& name);
     bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter);
     bool parseDisassembly(const std::string& text);
     void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);

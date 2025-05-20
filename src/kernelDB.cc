@@ -203,7 +203,7 @@ kernelDB::~kernelDB()
    }
 }
 
-const CDNAKernel& kernelDB::getKernel(const std::string& name)
+CDNAKernel& kernelDB::getKernel(const std::string& name)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(name));
@@ -214,6 +214,7 @@ const CDNAKernel& kernelDB::getKernel(const std::string& name)
     else
         throw std::runtime_error(name + " kernel does not exist.");
 }
+    
 
 bool kernelDB::getBasicBlocks(const std::string& kernel, std::vector<basicBlock>&)
 {
@@ -373,7 +374,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
     std::string line;
     parse_mode mode = BEGIN;
     std::string strKernel;
-    uint16_t block_count = 0;
+    uint32_t block_count = 0;
     std::unique_ptr<CDNAKernel> kernel;
     CDNAKernel *current_kernel = nullptr;
     std::unique_ptr<basicBlock> block;
@@ -386,8 +387,6 @@ bool kernelDB::parseDisassembly(const std::string& text)
         {
             case BEGIN:
                 mode = KERNEL;
-                if (block_count)
-                    std::cout << std::dec << block_count << " blocks in " << strKernel << std::endl;
                 block_count = 0;
                 break;
             case KERNEL:
@@ -395,7 +394,6 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
                 current_kernel = kernel.get();
                 mode=BBLOCK;
-                block_count++;
                 addKernel(std::move(kernel));
 
                 break;
@@ -406,22 +404,34 @@ bool kernelDB::parseDisassembly(const std::string& text)
                     if (!current_block)
                     {
                         block = std::make_unique<basicBlock>();
+                        block_count++;
                         current_block = block.get();
                     }
                     trim(tokens[0]);
                     if (isBranch(tokens[0]))
                     {
-                        block_count++;
                         if (current_kernel)
-                            current_kernel->addBlock(std::move(block));
+                            current_kernel->addBlock(block_count, std::move(block));
                         else
                         {
                             std::cout << "Disassembly parsing error. Processing a branch instruction when there's not a kernel currently defined.\n";
                             std::cout << line << std::endl;
                             abort();
                         }
-                        current_block = nullptr;
-                        continue;
+                        if (tokens[0].find("s_endpgm") != std::string::npos)
+                        {
+                            block = std::make_unique<basicBlock>();
+                            block_count++;
+                            current_block = block.get();
+                            // Going to let this drop down to add the s_endpgrm instruction to the block.
+                            // This is the only branch instruction we include
+                            // This should always be the last block and last instruction in the kernel
+                        }
+                        else
+                        {
+                            current_block = nullptr;
+                            continue;
+                        }
                     }
                     std::vector<std::string> inst_tokens;
                     instruction_t inst;
@@ -449,17 +459,27 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         inst.address_ = std::stoull(strAddress, nullptr, 16);
                         inst.block_ = current_block;
                         current_block->addInstruction(inst);
+                        if (inst.inst_ == "s_endpgm")
+                        {
+                            if (current_kernel && current_block)
+                            {
+                                current_kernel->addBlock(block_count, std::move(block));
+                                current_block = nullptr;
+                            }
+                            else
+                                std::cerr << "Error parsing disassembly - s_endpgm without current kernel or block\n";
+                        }
                     }
                 }
                 break;
             case BRANCH:
-                block_count++;
                 current_block = nullptr;
                 break;
             default:
                 break;
         }
     }
+
     return bReturn;
 }
 
@@ -561,6 +581,7 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
             //for (size_t i=0; i < blocks.size(); i++)
             for (const auto& block : blocks)
             {
+                assert(block.get());
                 auto& instructions = block.get()->getModifiableInstructions();
                 for(auto& instruction : instructions)
                 {
@@ -575,14 +596,12 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
                         instruction.block_ = inst.block_ = block.get();
                         instruction.path_id_ = inst.path_id_ = it->second.get()->addFileName(source.fileName);
                         it->second.get()->addLine(source.lineNumber, inst);
-                        //std::cout << "Added a line\n";
                     }
                     catch(std::runtime_error e)
                     {
                         //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
                     }
                 }
-                //std::cout << "Added a block\n";
             }
             it++;
         }
@@ -707,13 +726,22 @@ void CDNAKernel::getLineNumbers(std::vector<uint32_t>& out)
     }
 }
 
-size_t CDNAKernel::addBlock(std::unique_ptr<basicBlock> block)
+size_t CDNAKernel::addBlock(uint32_t global_index, std::unique_ptr<basicBlock> block)
 {
     std::unique_lock<std::shared_mutex> lock(mutex_);
+    assert(block.get());
+    block_map_[global_index] = block.get();
     blocks_.push_back(std::move(block));
     return blocks_.size();
 }
 
+size_t CDNAKernel::getBlockCount()
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    if (block_map_.size() != blocks_.size())
+        std::cout << "block_map_.size() == " << block_map_.size() << " while blocks_.size() == " << blocks_.size() << std::endl;
+    return block_map_.size();
+}
 
 void CDNAKernel::addLine(uint32_t line, const instruction_t& instruction)
 {
