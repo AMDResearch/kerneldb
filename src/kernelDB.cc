@@ -367,6 +367,58 @@ parse_mode kernelDB::getLineType(std::string& line)
     }
     return result;
 }
+    
+void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers)
+{
+    std::istringstream in(disassembly);
+    std::string line;
+    uint64_t base_addr;
+    std::getline(in, line);
+    while (getLineType(line) != KERNEL)
+        std::getline(in, line);
+    std::string name;
+    std::map<std::string, std::set<uint64_t>>::iterator it;
+    do
+    {
+        parse_mode mode = getLineType(line);
+        if (mode == KERNEL)
+        {
+            name = demangleName((line.substr(0, line.length() - 1)).c_str());
+            it = markers.find(name);
+            if (it == markers.end())
+            {
+                markers[name] = std::set<uint64_t>();
+                it = markers.find(name);
+            }
+            base_addr = 0;
+        }
+        else
+        {
+           std::vector<std::string> tokens;
+           split(line, tokens, " ", false);
+           if (tokens.size() && tokens[0].find("_cbranch_") != std::string::npos)
+           {
+               std::string addr = tokens[tokens.size() - 1];
+               std::vector<std::string> tmp;
+               split(addr, tmp, "+", false);
+               assert(tmp.size() == 2);
+               tmp[1].pop_back();
+               it->second.insert(base_addr + std::stoull(tmp[1], nullptr, 16));
+           }
+           else if (base_addr == 0)
+           {
+                size_t i = 1;
+                while (tokens[i].find("//") == std::string::npos)
+                    i++;
+                std::string strAddress = tokens[++i];
+                // remove the ending colon
+                strAddress.pop_back();
+                base_addr = std::stoull(strAddress, nullptr, 16);
+           }
+        }
+    }while(std::getline(in,line));
+    std::cout << "Found " << markers.size() << " kernels\n";
+}
 
 bool kernelDB::parseDisassembly(const std::string& text)
 {
@@ -380,8 +432,13 @@ bool kernelDB::parseDisassembly(const std::string& text)
     CDNAKernel *current_kernel = nullptr;
     std::unique_ptr<basicBlock> block;
     basicBlock *current_block = nullptr;
+    std::map<std::string, std::set<uint64_t>> markers;
+    getBlockMarkers(text, markers);
+    //std::cout << "Found " << markers.size() << " in getBlockMarkers";
+    std::map<std::string, std::set<uint64_t>>::iterator mit;
     while(std::getline(in,line))
     {
+        bool blockCreated = false;
         std::vector<std::string> tokens;
         mode = getLineType(line);
         switch(mode)
@@ -393,6 +450,8 @@ bool kernelDB::parseDisassembly(const std::string& text)
             case KERNEL:
                 strKernel = line.substr(0, line.length() - 1);
                 kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
+                mit = markers.find(demangleName(strKernel.c_str()));
+                assert(mit != markers.end());
                 current_kernel = kernel.get();
                 mode=BBLOCK;
                 addKernel(std::move(kernel));
@@ -404,9 +463,11 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 {
                     if (!current_block)
                     {
+                        //std::cout << "Starting a new block:\n\t" << line << std::endl;
                         block = std::make_unique<basicBlock>();
                         block_count++;
                         current_block = block.get();
+                        blockCreated = true;
                     }
                     trim(tokens[0]);
                     if (isBranch(tokens[0]))
@@ -421,6 +482,8 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         }
                         if (tokens[0].find("s_endpgm") != std::string::npos)
                         {
+                            blockCreated = true;
+                          //  std::cout << "New Block at endpgm\n\t" << line << std::endl;
                             block = std::make_unique<basicBlock>();
                             block_count++;
                             current_block = block.get();
@@ -458,6 +521,21 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         // remove the ending colon
                         strAddress.pop_back();
                         inst.address_ = std::stoull(strAddress, nullptr, 16);
+                        if (!blockCreated && mit != markers.end() && (mit->second.find(inst.address_) != mit->second.end()))
+                        {
+                            // This is the first line of a new block
+                            // So add the current block and create a new one
+                            // Not all blocks end in branches, so when we come to 
+                            // an address identified as the target of a conditional branch
+                            // we don't care if the current block ends with a branch instruction
+                            // we just save it and create a new one.
+                            //std::cout << "Starting block at " << strAddress << std::endl;
+                            if (current_block)
+                                current_kernel->addBlock(block_count, std::move(block));
+                            block = std::make_unique<basicBlock>();
+                            block_count++;
+                            current_block = block.get();
+                        }
                         inst.block_ = current_block;
                         current_block->addInstruction(inst);
                         if (inst.inst_ == "s_endpgm")

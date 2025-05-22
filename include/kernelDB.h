@@ -44,6 +44,7 @@ THE SOFTWARE.
 #include <fstream>
 #include <list>
 #include <map>
+#include <set>
 #include <unordered_set>
 #include <sstream>
 #include <string>
@@ -148,6 +149,7 @@ public:
     std::string getFileName(size_t index) {assert(index <= file_names_.size()); return file_names_[index-1];}
     const basicBlock *getBasicBlock(uint32_t idx) { assert(idx < blocks_.size()); return blocks_[idx].get();}
     void getSourceCode(std::vector<std::string>& outputLines);
+    std::string getDisassembly() {return disassembly_;}
 private:
     std::string name_;
     std::string disassembly_;
@@ -175,6 +177,7 @@ public:
     void getKernels(std::vector<std::string>& out);
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
     std::string getFileName(const std::string& kernel, size_t index);
+    void getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
 private:
