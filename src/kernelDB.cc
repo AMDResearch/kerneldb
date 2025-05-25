@@ -244,6 +244,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
 {
     bool bReturn = true;
     amd_comgr_data_t executable;
+    bool bValidExecutable = false;
     std::vector<std::string> isas = ::kernelDB::getIsaList(agent);
     std::cout << "Adding " << name << std::endl;
     if (name.ends_with(".hsaco"))
@@ -298,13 +299,14 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
                 {
                     CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_EXECUTABLE, &executable));
                     CHECK_COMGR(amd_comgr_set_data(executable, co.size, reinterpret_cast<const char *>(bits.data() + co.offset)));
+                    bValidExecutable = true;
                     break;
                 }
             }
         }
         CHECK_COMGR(amd_comgr_release_data(bundle));
     }
-    if(isas.size())
+    if(bValidExecutable && isas.size())
     {
         amd_comgr_data_set_t dataSetIn, dataSetOut;
         amd_comgr_data_t dataOutput;
@@ -344,6 +346,8 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
             bReturn = false;
         }
     }
+    else
+        bReturn = false;
     return bReturn;
 }
 
