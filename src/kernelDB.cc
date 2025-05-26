@@ -269,6 +269,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         file.close();
         CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_EXECUTABLE, &executable));
         CHECK_COMGR(amd_comgr_set_data(executable, buff.size(), buff.data()));
+        bValidExecutable = true;
     }
     else
     {
