@@ -36,13 +36,20 @@ std::optional<Dwarf_Addr> find_floor_key(const std::map<Dwarf_Addr, T>& map, Dwa
         return std::nullopt; // No keys in the map
     }
 
-    auto it = map.upper_bound(target); // First key > target
+    auto it = map.find(target);
+    // If there's an exact match, return that
+    if (it != map.end())
+        return it->first;
+
+    // If there's no exact match, use next greater addr
+    it = map.upper_bound(target); // First key > target
     if (it == map.begin()) {
         return std::nullopt; // No key <= target (all keys are > target)
     }
 
     // Move to the key <= target (previous iterator)
-    --it;
+    //if (it == map.end())
+        --it;
     return it->first;
 }
 

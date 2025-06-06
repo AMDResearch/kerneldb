@@ -24,6 +24,38 @@ THE SOFTWARE.
 #include <string>
 #include "include/kernelDB.h"
 
+std::vector<std::string> readFileLines(const std::string& filename, uint32_t startLine, uint32_t endLine) {
+    std::vector<std::string> lines;
+
+    // Validate input parameters
+    if (startLine == 0 || startLine > endLine) {
+        throw std::invalid_argument("Invalid line range: startLine must be >= 1 and <= endLine");
+    }
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Unable to open file: " + filename);
+    }
+
+    std::string line;
+    uint32_t currentLine = 0;
+
+    // Read until we reach startLine or EOF
+    while (currentLine < startLine - 1 && std::getline(file, line)) {
+        ++currentLine;
+    }
+
+    // Read lines from startLine to endLine inclusive
+    while (currentLine < endLine && std::getline(file, line)) {
+        lines.push_back(line);
+        ++currentLine;
+    }
+
+    file.close();
+    return lines;
+}
+
+
 int main(int argc, char **argv)
 {
     hsa_init();
@@ -49,6 +81,18 @@ int main(int argc, char **argv)
                     test.getKernelLines(kernel, lines);
                     auto& thisKernel = test.getKernel(kernel);
                     std::cout << "Blocks for kernel " << kernel << ":\n\t" << thisKernel.getBlockCount() << std::endl;
+                    const auto& blocks = thisKernel.getBasicBlocks();
+                    uint32_t idx = 0;
+                    for (auto& block : blocks)
+                    {
+                        kernelDB::basicBlock *thisBlock = block.get();
+                        auto inst = thisBlock->getInstructions();
+                        std::cout << "\tBlock " << idx++ << std::endl;
+                        for (auto& one_inst : inst)
+                        {
+                            std::cout << "\t\t[" << one_inst.line_ << ":" << one_inst.column_ << "] " << one_inst.disassembly_ << std::endl;
+                        }
+                    }
                     for (auto& line : lines)
                     {
                         std::cout << "Line for " << kernel << " " << line << std::endl;
@@ -57,9 +101,8 @@ int main(int argc, char **argv)
                             // Old Style
                             const auto& inst = test.getInstructionsForLine(kernel, line);
                             for(size_t idx = 0; idx < inst.size(); idx++)
-                            //for (const auto& item : inst)
                             {
-                                std::cout << "Default Disassembly[" << inst[idx].column_ << "]: " << inst[idx].disassembly_ << std::endl;
+                                std::cout << "Default Disassembly[" << inst[idx].line_ << "|" << inst[idx].column_ << "]: " << inst[idx].disassembly_ << std::endl;
                                     std::cout << test.getFileName(kernel, inst[idx].path_id_) << std::endl;
                             }
 
