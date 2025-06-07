@@ -150,6 +150,7 @@ public:
     const basicBlock *getBasicBlock(uint32_t idx) { assert(idx < blocks_.size()); return blocks_[idx].get();}
     void getSourceCode(std::vector<std::string>& outputLines);
     std::string getDisassembly() {return disassembly_;}
+    void printBlock(std::ostream& out, basicBlock *block, const std::string& label);
 private:
     std::string name_;
     std::string disassembly_;
@@ -159,6 +160,7 @@ private:
     std::map<std::string, size_t> file_map_;
     std::vector<std::string> file_names_;
     std::shared_mutex mutex_;
+    std::map<std::string, std::vector<std::string>> source_cache_;
 };
 
 class __attribute__((visibility("default"))) kernelDB {

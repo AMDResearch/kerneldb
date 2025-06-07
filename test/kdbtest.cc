@@ -77,6 +77,8 @@ int main(int argc, char **argv)
                 test.getKernels(kernels);
                 for (auto kernel : kernels)
                 {
+                    if (kernel.find("_amd_crk") != std::string::npos)
+                        continue;
                     std::vector<uint32_t> lines;
                     test.getKernelLines(kernel, lines);
                     auto& thisKernel = test.getKernel(kernel);
@@ -88,6 +90,7 @@ int main(int argc, char **argv)
                         kernelDB::basicBlock *thisBlock = block.get();
                         auto inst = thisBlock->getInstructions();
                         std::cout << "\tBlock " << idx++ << std::endl;
+                        thisKernel.printBlock(std::cout, thisBlock, std::string("label"));
                         for (auto& one_inst : inst)
                         {
                             std::cout << "\t\t[" << one_inst.line_ << ":" << one_inst.column_ << "] " << one_inst.disassembly_ << std::endl;

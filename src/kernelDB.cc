@@ -54,6 +54,48 @@ static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbr
 
 #define OMNIPROBE_PREFIX "__amd_crk_"
 
+size_t readFile(const std::string& filename, std::vector<std::string>& lines) {
+    // Validate input parameters
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Unable to open file: " + filename);
+    }
+
+    std::string line;
+    uint32_t currentLine = 0;
+
+    // Read until we reach startLine or EOF
+    while (std::getline(file, line)) {
+        lines.push_back(line);
+    }
+
+    file.close();
+    return lines.size();
+}
+
+
+std::string genColumnMarkers(std::vector<uint32_t>& cols)
+{
+    // Sort the vector in ascending order
+    std::sort(cols.begin(), cols.end());
+
+    // Get the maximum value (last element after sorting, if vector is not empty)
+    uint32_t max_val = cols.empty() ? 0 : cols.back();
+
+    // Generate a string of spaces with length equal to max_val
+    std::string result(max_val, ' ');
+
+    // Replace space with 'V' at each index from the vector
+    for (uint32_t index : cols) {
+        if (index - 1 < max_val) {
+            result[index - 1] = 'V';
+        }
+    }
+
+    return result;
+}
+
 
 std::string demangleName(const char *name)
 {
@@ -771,6 +813,7 @@ void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& 
 basicBlock::basicBlock()
 {
 }
+    
 
 const std::vector<instruction_t>& basicBlock::getInstructions()
 {
@@ -808,6 +851,47 @@ void CDNAKernel::getLineNumbers(std::vector<uint32_t>& out)
         out.push_back(it->first);
         it++;
     }
+}
+
+void CDNAKernel::printBlock(std::ostream& out, basicBlock *block, const std::string& label)
+{
+   assert(block);
+   std::map<std::string, std::map<uint32_t, std::vector<uint32_t>>> columnMarkers;
+   auto& instructions = block->getInstructions();
+   std::unique_lock<std::shared_mutex> lock(mutex_);
+   for (auto& inst : instructions)
+   {
+       std::string filename = getFileName(inst.path_id_);
+       auto it = source_cache_.find(filename);
+       if (it == source_cache_.end())
+       {
+           std::vector<std::string> contents;
+           readFile(filename, contents);
+           source_cache_[filename] = contents;
+       }
+       auto jt = columnMarkers.find(filename);
+       if (jt == columnMarkers.end())
+       {
+            columnMarkers[filename][inst.line_] = {inst.column_};
+       }
+       else
+           jt->second[inst.line_].push_back(inst.column_);
+   }
+   
+   std::set<uint32_t> processed;
+   for (auto inst : instructions)
+   {
+       if (processed.find(inst.line_) == processed.end())
+       {
+           std::string filename = getFileName(inst.path_id_);
+           auto it = source_cache_.find(filename);
+           assert(it->second.size() > inst.line_);
+           out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl; 
+           out << it->second[inst.line_ - 1] << std::endl;
+           processed.insert(inst.line_);
+       }
+   }
+
 }
 
 size_t CDNAKernel::addBlock(uint32_t global_index, std::unique_ptr<basicBlock> block)
