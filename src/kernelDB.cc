@@ -86,10 +86,10 @@ std::string genColumnMarkers(std::vector<uint32_t>& cols)
     // Generate a string of spaces with length equal to max_val
     std::string result(max_val, ' ');
 
-    // Replace space with 'V' at each index from the vector
+    // Replace space with '^' at each index from the vector
     for (uint32_t index : cols) {
         if (index - 1 < max_val) {
-            result[index - 1] = 'V';
+            result[index - 1] = '^';
         }
     }
 
@@ -886,8 +886,11 @@ void CDNAKernel::printBlock(std::ostream& out, basicBlock *block, const std::str
            std::string filename = getFileName(inst.path_id_);
            auto it = source_cache_.find(filename);
            assert(it->second.size() > inst.line_);
+           if (inst.line_)
+               out << it->second[inst.line_ - 1] << std::endl;
+           else
+               out << "No source line reference for this instruction: " << inst.disassembly_ << std::endl;
            out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl; 
-           out << it->second[inst.line_ - 1] << std::endl;
            processed.insert(inst.line_);
        }
    }
