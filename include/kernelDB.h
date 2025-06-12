@@ -72,6 +72,18 @@ extern "C"{
 #include "dwarf.h"
 }
 
+#define MISSING_SOURCE_INFO 0xffffffff
+
+typedef struct {
+    std::string isa_;
+    uint32_t xccs_;
+    uint32_t ses_;
+    uint32_t cus_;
+    uint32_t simds_;
+    uint32_t wave_size_;
+    uint32_t max_waves_;
+}kdb_arch_descriptor_t;
+
 // Structure to hold source location info
 struct SourceLocation {
     std::string fileName;
@@ -177,6 +189,7 @@ public:
     const std::vector<instruction_t>& getInstructionsForLine(const std::string& kernel_name, uint32_t line);
     std::vector<instruction_t> getInstructionsForLine(const std::string& kernel_name, uint32_t line, const std::string& match);
     void getKernels(std::vector<std::string>& out);
+    kdb_arch_descriptor_t getArchitecture();
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
     std::string getFileName(const std::string& kernel, size_t index);
     void getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers);

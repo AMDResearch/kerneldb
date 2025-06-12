@@ -398,7 +398,7 @@ parse_mode kernelDB::getLineType(std::string& line)
 {
     parse_mode result = BBLOCK;
     auto it = line.begin();
-    if (*it == ':')
+    if (*it == ':' || line.starts_with(".text:"))
         result = BEGIN;
     else
     {
@@ -410,6 +410,8 @@ parse_mode kernelDB::getLineType(std::string& line)
             {
                 result = KERNEL;
             }
+            else
+                result = BEGIN;
         }
     }
     return result;
@@ -483,6 +485,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
     getBlockMarkers(text, markers);
     //std::cout << "Found " << markers.size() << " in getBlockMarkers";
     std::map<std::string, std::set<uint64_t>>::iterator mit;
+    bool bDoingKernels = false;
     while(std::getline(in,line))
     {
         bool blockCreated = false;
@@ -495,6 +498,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 block_count = 0;
                 break;
             case KERNEL:
+                bDoingKernels = true;
                 strKernel = line.substr(0, line.length() - 1);
                 kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
                 mit = markers.find(demangleName(strKernel.c_str()));
@@ -505,6 +509,8 @@ bool kernelDB::parseDisassembly(const std::string& text)
 
                 break;
             case BBLOCK:
+                if (!bDoingKernels)
+                    break;
                 split(line, tokens, " ", false);
                 if (tokens.size())
                 {
@@ -725,6 +731,12 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
                     }
                     catch(std::runtime_error e)
                     {
+                        instruction_t inst = instruction;
+                        instruction.line_ = inst.line_ = MISSING_SOURCE_INFO;
+                        instruction.column_ = inst.column_ = MISSING_SOURCE_INFO;
+                        instruction.block_ = inst.block_ = block.get();
+                        instruction.path_id_ = inst.path_id_ = MISSING_SOURCE_INFO;
+                        it->second.get()->addLine(MISSING_SOURCE_INFO, inst);
                         //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
                     }
                 }
@@ -763,7 +775,10 @@ std::string kernelDB::getFileName(const std::string& kernel, size_t index)
     auto it = kernels_.find(getKernelName(kernel));
     if (it != kernels_.end())
     {
-        return it->second.get()->getFileName(index);
+        if (index != MISSING_SOURCE_INFO)
+            return it->second.get()->getFileName(index);
+        else
+            return std::string("<unknown>");
     }
     else
         return "";
@@ -861,37 +876,43 @@ void CDNAKernel::printBlock(std::ostream& out, basicBlock *block, const std::str
    std::unique_lock<std::shared_mutex> lock(mutex_);
    for (auto& inst : instructions)
    {
-       std::string filename = getFileName(inst.path_id_);
-       auto it = source_cache_.find(filename);
-       if (it == source_cache_.end())
+       if (inst.path_id_ != MISSING_SOURCE_INFO)
        {
-           std::vector<std::string> contents;
-           readFile(filename, contents);
-           source_cache_[filename] = contents;
+           std::string filename = getFileName(inst.path_id_);
+           auto it = source_cache_.find(filename);
+           if (it == source_cache_.end())
+           {
+               std::vector<std::string> contents;
+               readFile(filename, contents);
+               source_cache_[filename] = contents;
+           }
+           auto jt = columnMarkers.find(filename);
+           if (jt == columnMarkers.end())
+           {
+                columnMarkers[filename][inst.line_] = {inst.column_};
+           }
+           else
+               jt->second[inst.line_].push_back(inst.column_);
        }
-       auto jt = columnMarkers.find(filename);
-       if (jt == columnMarkers.end())
-       {
-            columnMarkers[filename][inst.line_] = {inst.column_};
-       }
-       else
-           jt->second[inst.line_].push_back(inst.column_);
    }
    
    std::set<uint32_t> processed;
    for (auto inst : instructions)
    {
-       if (processed.find(inst.line_) == processed.end())
+       if (inst.line_ != MISSING_SOURCE_INFO)
        {
-           std::string filename = getFileName(inst.path_id_);
-           auto it = source_cache_.find(filename);
-           assert(it->second.size() > inst.line_);
-           if (inst.line_)
-               out << it->second[inst.line_ - 1] << std::endl;
-           else
-               out << "No source line reference for this instruction: " << inst.disassembly_ << std::endl;
-           out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl; 
-           processed.insert(inst.line_);
+           if (processed.find(inst.line_) == processed.end())
+           {
+               std::string filename = getFileName(inst.path_id_);
+               auto it = source_cache_.find(filename);
+               assert(it->second.size() > inst.line_);
+               if (inst.line_)
+                   out << it->second[inst.line_ - 1] << std::endl;
+               else
+                   out << "No source line reference for this instruction: " << inst.disassembly_ << std::endl;
+               out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl; 
+               processed.insert(inst.line_);
+           }
        }
    }
 
