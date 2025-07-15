@@ -37,7 +37,8 @@ THE SOFTWARE.
 #include <unistd.h>
 #include <limits.h>
 #include <dlfcn.h>
-
+#include <stdexcept>
+#include <cstdio>
 #include <atomic>
 #include <chrono>
 #include <iostream>

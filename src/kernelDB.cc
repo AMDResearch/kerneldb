@@ -54,6 +54,43 @@ static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbr
 
 #define OMNIPROBE_PREFIX "__amd_crk_"
 
+
+bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName) {
+    // Construct the command string
+    std::stringstream command;
+    command << programName;
+    for (const auto& param : params) {
+        // Basic escaping of parameters (assumes no spaces in params; enhance if needed)
+        command << " " << param;
+    }
+    // Redirect stdout to outputFileName
+    command << " > " << outputFileName;
+
+    // Execute the command synchronously using popen
+    // Note: popen is used here to ensure compatibility with POSIX systems
+    FILE* pipe = popen(command.str().c_str(), "r");
+    if (!pipe) {
+        throw std::runtime_error("Failed to execute command: " + command.str());
+    }
+
+    // Since we're redirecting stdout to a file, we don't need to read from the pipe
+    // Just wait for the command to finish
+    int returnCode = pclose(pipe);
+    if (returnCode != 0) {
+        // Non-zero return code indicates failure
+        throw std::runtime_error("Command failed with return code: " + std::to_string(returnCode));
+    }
+
+    // Verify the output file was created
+    std::ifstream outputFile(outputFileName);
+    if (!outputFile.good()) {
+        throw std::runtime_error("Output file was not created or is inaccessible: " + outputFileName);
+    }
+    outputFile.close();
+
+    return true;
+}
+
 size_t readFile(const std::string& filename, std::vector<std::string>& lines) {
     // Validate input parameters
 
@@ -377,7 +414,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         //CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
         CHECK_COMGR(amd_comgr_release_data(dataOutput));
         CHECK_COMGR(amd_comgr_release_data(executable));
-        //std::cout << strDisassembly << std::endl;
+        std::cout << strDisassembly << std::endl;
         parseDisassembly(strDisassembly);
         try
         {
@@ -611,6 +648,8 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 break;
         }
     }
+
+    std::cout << "Marker Count: " << markers.size() << " Kernel Count: " << kernels_.size() << std::endl;
 
     return bReturn;
 }
