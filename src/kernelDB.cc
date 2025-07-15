@@ -414,7 +414,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         //CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
         CHECK_COMGR(amd_comgr_release_data(dataOutput));
         CHECK_COMGR(amd_comgr_release_data(executable));
-        std::cout << strDisassembly << std::endl;
+        //std::cout << strDisassembly << std::endl;
         parseDisassembly(strDisassembly);
         try
         {
