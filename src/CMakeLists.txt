@@ -26,6 +26,8 @@ set ( LIB_SRC
 #  ${LIB_DIR}/utils.cc
   ${LIB_DIR}/kernelDB.cc
   ${LIB_DIR}/addressMap.cc
+  ${LIB_DIR}/disassemble.cc
+  ${LIB_DIR}/co_extract.cc
 )
 
 

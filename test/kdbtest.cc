@@ -120,7 +120,7 @@ int main(int argc, char **argv)
                         }
                         catch(std::runtime_error e)
                         {
-                            std::cout << "Error: " << e.what() << std::endl;
+                            std::cout << "Error: "  << e.what() << std::endl;
                         }
                     }
                 }
@@ -129,6 +129,7 @@ int main(int argc, char **argv)
         catch(const std::runtime_error& exception)
         {
             std::cout << "Cannot process " << argv[1] << "\n\t (Usually that means there is no debug info in the file.)\n";
+            std::cout << exception.what() << std::endl;
         }
     }
     else

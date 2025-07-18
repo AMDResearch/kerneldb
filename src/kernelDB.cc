@@ -55,41 +55,6 @@ static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbr
 #define OMNIPROBE_PREFIX "__amd_crk_"
 
 
-bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName) {
-    // Construct the command string
-    std::stringstream command;
-    command << programName;
-    for (const auto& param : params) {
-        // Basic escaping of parameters (assumes no spaces in params; enhance if needed)
-        command << " " << param;
-    }
-    // Redirect stdout to outputFileName
-    command << " > " << outputFileName;
-
-    // Execute the command synchronously using popen
-    // Note: popen is used here to ensure compatibility with POSIX systems
-    FILE* pipe = popen(command.str().c_str(), "r");
-    if (!pipe) {
-        throw std::runtime_error("Failed to execute command: " + command.str());
-    }
-
-    // Since we're redirecting stdout to a file, we don't need to read from the pipe
-    // Just wait for the command to finish
-    int returnCode = pclose(pipe);
-    if (returnCode != 0) {
-        // Non-zero return code indicates failure
-        throw std::runtime_error("Command failed with return code: " + std::to_string(returnCode));
-    }
-
-    // Verify the output file was created
-    std::ifstream outputFile(outputFileName);
-    if (!outputFile.good()) {
-        throw std::runtime_error("Output file was not created or is inaccessible: " + outputFileName);
-    }
-    outputFile.close();
-
-    return true;
-}
 
 size_t readFile(const std::string& filename, std::vector<std::string>& lines) {
     // Validate input parameters
@@ -281,6 +246,11 @@ kernelDB::~kernelDB()
    {
        it++;
    }
+   for (auto it : file_map_)
+   {
+       if (it.first != it.second)
+        unlink(it.second.c_str());
+   }
 }
 
 CDNAKernel& kernelDB::getKernel(const std::string& name)
@@ -329,6 +299,10 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     if (name.ends_with(".hsaco"))
     {
         std::vector<char> buff;
+        {
+            std::unique_lock<std::shared_mutex> lock(mutex_);
+            file_map_[name] = name;
+        }
         std::ifstream file(name, std::ios::binary | std::ios::ate);
 
         if (!file.is_open()) {
@@ -352,6 +326,11 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     }
     else
     {
+        std::string tmp_hsaco = extractCodeObject(agent, name);
+        {
+            std::unique_lock<std::shared_mutex> lock(mutex_);
+            file_map_[name] = tmp_hsaco;
+        }
         amd_comgr_data_t bundle;
         std::vector<uint8_t> bits;
         try
@@ -388,7 +367,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     }
     if(bValidExecutable && isas.size())
     {
-        amd_comgr_data_set_t dataSetIn, dataSetOut;
+        /*amd_comgr_data_set_t dataSetIn, dataSetOut;
         amd_comgr_data_t dataOutput;
         amd_comgr_action_info_t dataAction;
         CHECK_COMGR(amd_comgr_create_data_set(&dataSetIn));
@@ -414,7 +393,9 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         //CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
         CHECK_COMGR(amd_comgr_release_data(dataOutput));
         CHECK_COMGR(amd_comgr_release_data(executable));
-        //std::cout << strDisassembly << std::endl;
+        //std::cout << strDisassembly << std::endl;*/
+        std::string strDisassembly;
+        getDisassembly(agent, file_map_[name], strDisassembly);
         parseDisassembly(strDisassembly);
         try
         {
@@ -431,6 +412,32 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     return bReturn;
 }
 
+std::string kernelDB::extractKernelName(const std::string& line)
+{
+    std::string name;
+    if (line.ends_with(":"))
+    {
+        std::vector<std::string> tokens;
+        if (line.find_first_of(" ") != std::string::npos)
+        {
+            split(line, tokens, " ", false);
+            if (tokens.size() == 2)
+            {
+                name = tokens[1].substr(0, tokens[1].length() - 1);
+                if (name.starts_with("<") && name.ends_with(">"))
+                {
+                    name = name.substr(1, name.length() - 2);
+                }
+                if (name == ".text")
+                    name = "";
+            }
+        }
+        else
+            name = line.substr(0, line.length() - 1);
+    }
+    return name;
+}
+
 parse_mode kernelDB::getLineType(std::string& line)
 {
     parse_mode result = BBLOCK;
@@ -443,9 +450,12 @@ parse_mode kernelDB::getLineType(std::string& line)
         if (*it == ':')
         {
             // It's only a valid kernel if there are no spaces in lines that end with ':'
-            if(line.find_first_of(" ") == std::string::npos)
+            if(line.find_first_of(" ") == std::string::npos || *(--it) == '>')
             {
-                result = KERNEL;
+                if (line.ends_with("<.text>:"))
+                    result = BEGIN;
+                else
+                    result = KERNEL;
             }
             else
                 result = BEGIN;
@@ -469,7 +479,8 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
         parse_mode mode = getLineType(line);
         if (mode == KERNEL)
         {
-            name = demangleName((line.substr(0, line.length() - 1)).c_str());
+            name = extractKernelName(line);
+            name = demangleName(name.c_str());
             it = markers.find(name);
             if (it == markers.end())
             {
@@ -536,7 +547,8 @@ bool kernelDB::parseDisassembly(const std::string& text)
                 break;
             case KERNEL:
                 bDoingKernels = true;
-                strKernel = line.substr(0, line.length() - 1);
+                strKernel = extractKernelName(line);
+                //strKernel = line.substr(0, line.length() - 1);
                 kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
                 mit = markers.find(demangleName(strKernel.c_str()));
                 assert(mit != markers.end());
@@ -790,7 +802,22 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
 
 void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
     std::string strFile(elfFilePath);
-    if (!strFile.ends_with(".hsaco"))
+    /*
+        the file_map_ maps binaries to the extracted code object (hsaco) contents 
+        that were written to /tmp.  We do this because we need to disassemble
+        the code objects and we need libdwarf to read the debug information in code
+        objects. So we extract a single copy of the code object and write it to tmp.
+        file_map_ correlates the original executable or .so file name with the tmp file
+        that contains the extracted hsaco for the ISA on the system where this is
+        being run. This way we're not extracting code objects multiple times when
+        we want to use them multiple times.  All of this is a workaround to solve
+        the problem of comgr disassembly having an upper bound of how many kernels
+        it can disassemble. Disassembly of code objects with large #'s of kernels will 
+        randomly not contain all of the kernels in a hsaco. llvm-objdump works more 
+        reliably but requires an encapsulated hsaco binary (i.e. it can't cope with
+        fat binaries evidently.
+    */
+    if (!strFile.ends_with(".hsaco") && file_map_[strFile] == strFile)
     {
         size_t section_offset = 0;
         std::vector<uint8_t> bits;
@@ -803,7 +830,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
     }
     else
     {
-        buildLineMap(0, 0, elfFilePath);
+        buildLineMap(0, 0, file_map_[strFile].c_str());
     }
 }
 

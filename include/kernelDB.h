@@ -97,6 +97,11 @@ struct SourceLocation {
 
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap);
 SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
+__attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out);
+bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
+std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
+__attribute__((visibility("default"))) std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName);
+
 
 namespace kernelDB {
 
@@ -199,12 +204,14 @@ public:
 private:
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     parse_mode getLineType(std::string& line);
+    std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);
 private:
     std::map<std::string, std::unique_ptr<CDNAKernel>> kernels_;
     amd_comgr_data_t executable_;
     hsa_agent_t agent_;
     std::string fileName_;
+    std::map<std::string, std::string> file_map_;
     std::shared_mutex mutex_;
 };
 
