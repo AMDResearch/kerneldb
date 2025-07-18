@@ -298,102 +298,26 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     std::cout << "Adding " << name << std::endl;
     if (name.ends_with(".hsaco"))
     {
-        std::vector<char> buff;
         {
             std::unique_lock<std::shared_mutex> lock(mutex_);
             file_map_[name] = name;
         }
-        std::ifstream file(name, std::ios::binary | std::ios::ate);
-
-        if (!file.is_open()) {
-            std::cerr << "Failed to open the file: " << name << std::endl;
-        }
-
-        std::streamsize fileSize = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        // Resize the buffer to fit the file content
-        buff.resize(fileSize);
-
-        // Read the file content into the buffer
-        if (!file.read(buff.data(), fileSize)) {
-            std::cerr << "Failed to read the file content" << std::endl;
-        }
-        file.close();
-        CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_EXECUTABLE, &executable));
-        CHECK_COMGR(amd_comgr_set_data(executable, buff.size(), buff.data()));
         bValidExecutable = true;
     }
     else
     {
         std::string tmp_hsaco = extractCodeObject(agent, name);
+        if (tmp_hsaco.length() != 0)
         {
-            std::unique_lock<std::shared_mutex> lock(mutex_);
-            file_map_[name] = tmp_hsaco;
-        }
-        amd_comgr_data_t bundle;
-        std::vector<uint8_t> bits;
-        try
-        {
-            size_t offset;
-            getElfSectionBits(name, FATBIN_SECTION, offset, bits);
-        }
-        catch (const std::runtime_error e)
-        {
-            //getElfSectionBits will throw a runtime error if it can't find the file.
-            return false;
-        }
-        CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
-        CHECK_COMGR(amd_comgr_set_data(bundle, bits.size(), reinterpret_cast<const char *>(bits.data())));
-        if (isas.size())
-        {
-            std::vector<amd_comgr_code_object_info_t> ql;
-            for (int i = 0; i < isas.size(); i++)
-                ql.push_back({isas[i].c_str(),0,0});
-            CHECK_COMGR(amd_comgr_lookup_code_object(bundle,static_cast<amd_comgr_code_object_info_t *>(ql.data()), ql.size()));
-            for (auto co : ql)
             {
-                /* Use the first code object that is ISA-compatible with this agent */
-                if (co.size != 0)
-                {
-                    CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_EXECUTABLE, &executable));
-                    CHECK_COMGR(amd_comgr_set_data(executable, co.size, reinterpret_cast<const char *>(bits.data() + co.offset)));
-                    bValidExecutable = true;
-                    break;
-                }
+                std::unique_lock<std::shared_mutex> lock(mutex_);
+                file_map_[name] = tmp_hsaco;
             }
+            bValidExecutable = true;
         }
-        CHECK_COMGR(amd_comgr_release_data(bundle));
     }
     if(bValidExecutable && isas.size())
     {
-        /*amd_comgr_data_set_t dataSetIn, dataSetOut;
-        amd_comgr_data_t dataOutput;
-        amd_comgr_action_info_t dataAction;
-        CHECK_COMGR(amd_comgr_create_data_set(&dataSetIn));
-        CHECK_COMGR(amd_comgr_set_data_name(executable, "RB_DATAIN"));
-        CHECK_COMGR(amd_comgr_data_set_add(dataSetIn, executable));
-        CHECK_COMGR(amd_comgr_create_data_set(&dataSetOut));
-        CHECK_COMGR(amd_comgr_create_action_info(&dataAction));
-        CHECK_COMGR(amd_comgr_action_info_set_isa_name(dataAction,isas[0].c_str()));
-    	CHECK_COMGR(amd_comgr_do_action(AMD_COMGR_ACTION_DISASSEMBLE_EXECUTABLE_TO_SOURCE,
-                            dataAction, dataSetIn, dataSetOut));
-		CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
-		size_t count,size;
-
-		CHECK_COMGR(amd_comgr_action_data_count(dataSetOut, AMD_COMGR_DATA_KIND_SOURCE, &count));
-		CHECK_COMGR(amd_comgr_action_data_get_data(dataSetOut, AMD_COMGR_DATA_KIND_SOURCE, 0, &dataOutput));
-		CHECK_COMGR(amd_comgr_get_data(dataOutput, &size, NULL));
-
-        char *bytes = (char *)malloc(size+1);
-        bytes[size] = '\0';
-		CHECK_COMGR(amd_comgr_get_data(dataOutput, &size, bytes));
-        std::string strDisassembly(bytes);
-        free(bytes);
-        //CHECK_COMGR(amd_comgr_destroy_data_set(dataSetIn));
-        CHECK_COMGR(amd_comgr_release_data(dataOutput));
-        CHECK_COMGR(amd_comgr_release_data(executable));
-        //std::cout << strDisassembly << std::endl;*/
         std::string strDisassembly;
         getDisassembly(agent, file_map_[name], strDisassembly);
         parseDisassembly(strDisassembly);

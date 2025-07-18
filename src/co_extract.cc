@@ -33,7 +33,16 @@ std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName)
     {
         size_t section_offset = 0;
         std::vector<uint8_t> bits;
-        kernelDB::kernelDB::getElfSectionBits(fileName, std::string(".hip_fatbin"), section_offset, bits);
+        try
+        {
+            kernelDB::kernelDB::getElfSectionBits(fileName, std::string(".hip_fatbin"), section_offset, bits);
+        }
+        catch (const std::runtime_error& e)
+        {
+            // Not a fat binary
+            return result;
+        
+        }
         amd_comgr_code_object_info_t info = kernelDB::kernelDB::getCodeObjectInfo(agent, bits);
         if (info.size)
         {
