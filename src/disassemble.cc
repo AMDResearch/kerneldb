@@ -46,7 +46,19 @@ void readFileToString(const std::string& filename, std::string& content) {
     return;
 }
 
-std::string disassembler = "/opt/rocm/llvm/bin/llvm-objdump";
+
+std::string init_disassembler_path()
+{
+    const char *path = getenv("ROCM_PATH");
+    std::string result;
+    if (path)
+        result = std::string(path) + "/llvm/bin/llvm-objdump";
+    else
+        result = "/opt/rocm/llvm/bin/llvm-objdump";
+    return result;
+}
+
+std::string disassembler = init_disassembler_path();
 
 bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out)
 {
