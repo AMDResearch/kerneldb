@@ -644,7 +644,7 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
 std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
     std::cout << "=== Analyzing Clang Offload Bundle structure ===" << std::endl;
-    std::cout << "Bundle size: " << bits.size() << " bytes" << std::endl;
+    // std::cout << "Bundle size: " << bits.size() << " bytes" << std::endl;
 
     const char* CLANG_OFFLOAD_MAGIC = "__CLANG_OFFLOAD_BUNDLE__";
     const size_t MAGIC_SIZE = 24;
@@ -667,7 +667,7 @@ std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8
         }
 
         bundle_offsets.push_back(search_offset);
-        std::cout << "Found Clang Offload Bundle at offset: 0x" << std::hex << search_offset << std::dec << " (" << search_offset << ")" << std::endl;
+        // std::cout << "Found Clang Offload Bundle at offset: 0x" << std::hex << search_offset << std::dec << " (" << search_offset << ")" << std::endl;
 
         // Calculate the next bundle position
         if (search_offset + MAGIC_SIZE + 8 > bits.size()) {
@@ -675,7 +675,7 @@ std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8
         }
 
         uint64_t num_bundles = *reinterpret_cast<const uint64_t*>(bits.data() + search_offset + MAGIC_SIZE);
-        std::cout << "Number of sub-bundles: " << num_bundles << std::endl;
+        // std::cout << "Number of sub-bundles: " << num_bundles << std::endl;
 
         size_t offset = search_offset + MAGIC_SIZE + 8;
         uint64_t last_bundle_end = 0; // Track the furthest end position relative to bundle start
@@ -698,13 +698,13 @@ std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8
 
             uint64_t bundle_end = bundle_offset + bundle_size;
 
-            std::cout << "Sub-bundle " << i << ":" << std::endl;
-            std::cout << "  Triple: " << triple << std::endl;
-            std::cout << "  Offset: 0x" << std::hex << bundle_offset << std::dec << " (" << bundle_offset << ")" << std::endl;
-            std::cout << "  Size: " << bundle_size << " bytes" << std::endl;
-            std::cout << "  End: 0x" << std::hex << bundle_end << std::dec << std::endl;
-            std::cout << "  Status: " << (search_offset + bundle_end <= bits.size() ? "Valid" : "Invalid") << std::endl;
-            std::cout << std::endl;
+            // std::cout << "Sub-bundle " << i << ":" << std::endl;
+            // std::cout << "  Triple: " << triple << std::endl;
+            // std::cout << "  Offset: 0x" << std::hex << bundle_offset << std::dec << " (" << bundle_offset << ")" << std::endl;
+            // std::cout << "  Size: " << bundle_size << " bytes" << std::endl;
+            // std::cout << "  End: 0x" << std::hex << bundle_end << std::dec << std::endl;
+            // std::cout << "  Status: " << (search_offset + bundle_end <= bits.size() ? "Valid" : "Invalid") << std::endl;
+            // std::cout << std::endl;
 
             // Track the last sub-bundle end position (relative to bundle start)
             if (i == num_bundles - 1) {
@@ -715,8 +715,8 @@ std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8
         // Calculate absolute end position and round up to next 4096-byte boundary
         uint64_t absolute_end = search_offset + last_bundle_end;
         search_offset = ((absolute_end + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
-        std::cout << "Next bundle search position: 0x" << std::hex << search_offset << std::dec << std::endl;
-        std::cout << std::endl;
+        // std::cout << "Next bundle search position: 0x" << std::hex << search_offset << std::dec << std::endl;
+        // std::cout << std::endl;
     }
 
     std::cout << "Total Clang Offload Bundles found: " << bundle_offsets.size() << std::endl;
