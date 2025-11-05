@@ -146,7 +146,7 @@ else()
 endif()
 
 # Check the Linux distribution by examining /etc/os-release
-# Certain macros are defined for Ubuntu 
+# Certain macros are defined for Ubuntu
 if(EXISTS "/etc/os-release")
     file(READ "/etc/os-release" OS_RELEASE_CONTENT)
     string(FIND "${OS_RELEASE_CONTENT}" "ID=ubuntu" FOUND_UBUNTU)
@@ -175,7 +175,9 @@ set_property(TARGET ${TARGET_NAME} PROPERTY VERSION "${LIB_VERSION_STRING}")
 set_property(TARGET ${TARGET_NAME} PROPERTY SOVERSION "${LIB_VERSION_MAJOR}")
 # If the library is a release, strip the target library
 if("${CMAKE_BUILD_TYPE}" STREQUAL release)
-  add_custom_command(TARGET ${KERNELDB_TARGET} POST_BUILD COMMAND ${CMAKE_STRIP} *.so)
+  add_custom_command(TARGET ${KERNELDB_TARGET} POST_BUILD
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:${KERNELDB_TARGET}>
+    COMMENT "Stripping ${KERNELDB_TARGET}")
 endif()
 
 # Build tests

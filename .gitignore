@@ -1,2 +1,6 @@
 build/
 .vscode/
+
+*.pyc
+*.so*
+*.egg-info/
