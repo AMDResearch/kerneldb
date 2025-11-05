@@ -12,25 +12,21 @@ to source code lines.
 from .api import (
     KernelDB,
     Kernel,
-    KernelTrace,
     Instruction,
     BasicBlock,
     CDNAKernel,
     ArchDescriptor,
     HsaAgent,
-    analyze_binary,
 )
 
 __version__ = "0.1.0"
 __all__ = [
     "KernelDB",
     "Kernel",
-    "KernelTrace",
     "Instruction",
     "BasicBlock",
     "CDNAKernel",
     "ArchDescriptor",
     "HsaAgent",
-    "analyze_binary",
 ]
 

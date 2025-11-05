@@ -137,8 +137,6 @@ class KernelDB:
 class Kernel:
     """
     High-level wrapper around CDNAKernel with convenient properties
-
-    This provides a more Pythonic interface similar to the Nexus API.
     """
 
     def __init__(self, cdna_kernel: CDNAKernel, kdb_instance: KernelDB):
@@ -199,68 +197,3 @@ class Kernel:
     def get_basic_blocks(self) -> List[BasicBlock]:
         """Get all basic blocks in this kernel"""
         return list(self._kernel.get_basic_blocks())
-
-
-class KernelTrace:
-    """
-    Container for traced kernel information
-
-    Compatible with Nexus-style trace interface for easy example adaptation.
-    """
-
-    def __init__(self):
-        self.kernels: List[Kernel] = []
-
-    def __len__(self) -> int:
-        return len(self.kernels)
-
-    def __iter__(self):
-        return iter(self.kernels)
-
-    def __getitem__(self, idx: int) -> Kernel:
-        return self.kernels[idx]
-
-    def save(self, filename: str):
-        """Save trace to JSON file"""
-        import json
-
-        data = {
-            "kernels": [
-                {
-                    "name": kernel.name,
-                    "signature": kernel.signature,
-                    "lines": kernel.lines,
-                    "files": kernel.files,
-                    "assembly_count": len(kernel.assembly),
-                    "hip_source_lines": len(kernel.hip_source),
-                }
-                for kernel in self.kernels
-            ]
-        }
-
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2)
-
-        print(f"Trace saved to {filename}")
-
-
-# High-level API compatible with Nexus-style usage
-def analyze_binary(binary_path: str) -> KernelTrace:
-    """
-    Analyze a HIP binary and return kernel trace information
-
-    Args:
-        binary_path: Path to HSACO or HIP binary
-
-    Returns:
-        KernelTrace object containing kernel information
-    """
-    kdb = KernelDB(binary_path)
-
-    trace = KernelTrace()
-    for kernel_name in kdb.get_kernels():
-        cdna_kernel = kdb.get_kernel(kernel_name)
-        kernel = Kernel(cdna_kernel, kdb)
-        trace.kernels.append(kernel)
-
-    return trace
