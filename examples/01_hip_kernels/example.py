@@ -64,7 +64,6 @@ def main():
 
         print("\n[2/2] Analyzing binary with kernelDB...")
         kdb = KernelDB(str(exe_file))
-        kdb.analyze()
 
         kernels = kdb.get_kernels()
         print(f"Found {len(kernels)} kernel(s)")

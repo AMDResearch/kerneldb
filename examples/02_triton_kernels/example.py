@@ -91,7 +91,6 @@ def main():
         for code_obj in recent_objects:
             try:
                 kdb = KernelDB(str(code_obj))
-                kdb.analyze()
                 kernel_names = kdb.get_kernels()
 
                 for name in kernel_names:

@@ -65,13 +65,6 @@ class KernelDB:
         self._kdb = _kerneldb.KernelDB(self.agent, binary_path)
         self.binary_path = binary_path
 
-    def analyze(self):
-        """
-        Analyze the binary - No-op for compatibility since analysis
-        happens automatically in the C++ constructor
-        """
-        pass
-
     def get_kernels(self) -> List[str]:
         """
         Get list of all kernel names found in the binary

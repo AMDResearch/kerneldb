@@ -123,7 +123,6 @@ from kerneldb import KernelDB
 
 # Analyze a HIP binary or HSACO file
 kdb = KernelDB("my_kernel.hsaco")
-kdb.analyze()
 
 # Get all kernels
 for kernel_name in kdb.get_kernels():
