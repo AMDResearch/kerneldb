@@ -116,9 +116,15 @@ if(BUILD_PYTHON_BINDINGS)
         target_link_libraries(_kerneldb PRIVATE ${TARGET_LIB})
 
         # Set RPATH so the module can find the C++ library in the same directory
-        # Use CMAKE_LIBRARY_OUTPUT_DIRECTORY so it respects setup.py's choice
+        # Use CMAKE_LIBRARY_OUTPUT_DIRECTORY if set, otherwise use current binary dir
+        if(CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+            set(_output_dir ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+        else()
+            set(_output_dir ${CMAKE_CURRENT_BINARY_DIR})
+        endif()
+
         set_target_properties(_kerneldb PROPERTIES
-            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
+            LIBRARY_OUTPUT_DIRECTORY ${_output_dir}
             INSTALL_RPATH "$ORIGIN"
             BUILD_WITH_INSTALL_RPATH TRUE
         )
