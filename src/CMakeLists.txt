@@ -73,6 +73,7 @@ target_link_libraries(
     z
     zstd
     dwarf
+    elf
 )
 # Install the kernelDB library and public headers
 file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")

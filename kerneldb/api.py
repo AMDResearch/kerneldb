@@ -27,6 +27,7 @@ BasicBlock = _kerneldb.BasicBlock
 CDNAKernel = _kerneldb.CDNAKernel
 ArchDescriptor = _kerneldb.ArchDescriptor
 HsaAgent = _kerneldb.HsaAgent
+KernelArgument = _kerneldb.KernelArgument
 
 
 class KernelDB:
@@ -133,6 +134,21 @@ class KernelDB:
         """
         return self._kdb.get_file_name(kernel_name, index)
 
+    def get_kernel_arguments(self, kernel_name: str) -> List[KernelArgument]:
+        """
+        Get kernel arguments (parameters) from DWARF debug information
+
+        Args:
+            kernel_name: Name of the kernel
+
+        Returns:
+            List of KernelArgument objects containing name, type, size, alignment, and position
+
+        Raises:
+            RuntimeError: If kernel not found or argument information unavailable
+        """
+        return self._kdb.get_kernel_arguments(kernel_name)
+
 
 class Kernel:
     """
@@ -197,3 +213,17 @@ class Kernel:
     def get_basic_blocks(self) -> List[BasicBlock]:
         """Get all basic blocks in this kernel"""
         return list(self._kernel.get_basic_blocks())
+
+    @property
+    def arguments(self) -> List[KernelArgument]:
+        """
+        Get kernel arguments (parameters) from DWARF debug information
+
+        Returns:
+            List of KernelArgument objects with name, type, size, alignment, and position
+        """
+        return self._kernel.get_arguments()
+
+    def has_arguments(self) -> bool:
+        """Check if kernel has argument information available"""
+        return self._kernel.has_arguments()

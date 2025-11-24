@@ -16,6 +16,26 @@ PYBIND11_MODULE(_kerneldb, m) {
         .def(py::init<>())
         .def_readwrite("handle", &hsa_agent_t::handle);
 
+    // Bind KernelArgument struct (recursive - used for both top-level args and struct members)
+    py::class_<KernelArgument>(m, "KernelArgument")
+        .def(py::init<>())
+        .def(py::init<const std::string&, const std::string&, size_t, size_t, size_t, uint32_t>(),
+             py::arg("name"), py::arg("type"), py::arg("size"), py::arg("offset"),
+             py::arg("alignment"), py::arg("position"))
+        .def_readonly("name", &KernelArgument::name)
+        .def_readonly("type", &KernelArgument::type)
+        .def_readonly("size", &KernelArgument::size)
+        .def_readonly("offset", &KernelArgument::offset)      // 0 for top-level, actual offset for members
+        .def_readonly("alignment", &KernelArgument::alignment) // relevant for top-level args
+        .def_readonly("position", &KernelArgument::position)   // 0-based for top-level, 0 for members
+        .def_readonly("members", &KernelArgument::members)     // recursive!
+        .def("__repr__", [](const KernelArgument &arg) {
+            return "<KernelArgument '" + arg.name + "': " + arg.type +
+                   " (size=" + std::to_string(arg.size) +
+                   ", offset=" + std::to_string(arg.offset) +
+                   ", pos=" + std::to_string(arg.position) + ")>";
+        });
+
     // Bind instruction_t struct
     py::class_<kernelDB::instruction_t>(m, "Instruction")
         .def(py::init<>())
@@ -78,6 +98,11 @@ PYBIND11_MODULE(_kerneldb, m) {
         }, "Get source code lines")
         .def("get_disassembly", &kernelDB::CDNAKernel::getDisassembly,
              "Get full disassembly")
+        .def("get_arguments", &kernelDB::CDNAKernel::getArguments,
+             "Get kernel arguments",
+             py::return_value_policy::reference_internal)
+        .def("has_arguments", &kernelDB::CDNAKernel::hasArguments,
+             "Check if kernel has argument information")
         .def("__repr__", [](kernelDB::CDNAKernel &kernel) {
             return "<CDNAKernel: " + kernel.getName() + ">";
         });
@@ -133,6 +158,9 @@ PYBIND11_MODULE(_kerneldb, m) {
         .def("get_file_name", &kernelDB::kernelDB::getFileName,
              "Get source file name",
              py::arg("kernel"), py::arg("index"))
+        .def("get_kernel_arguments", &kernelDB::kernelDB::getKernelArguments,
+             "Get kernel arguments",
+             py::arg("kernel_name"))
         .def("__repr__", [](const kernelDB::kernelDB &db) {
             return "<KernelDB instance>";
         });

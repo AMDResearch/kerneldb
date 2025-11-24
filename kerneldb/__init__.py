@@ -17,6 +17,7 @@ from .api import (
     CDNAKernel,
     ArchDescriptor,
     HsaAgent,
+    KernelArgument,
 )
 
 __version__ = "0.1.0"
@@ -28,5 +29,6 @@ __all__ = [
     "CDNAKernel",
     "ArchDescriptor",
     "HsaAgent",
+    "KernelArgument",
 ]
 
