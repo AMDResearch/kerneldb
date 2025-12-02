@@ -641,7 +641,7 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
 
 
 
-std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8_t>& bits)
+std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
     std::cout << "=== Analyzing Clang Offload Bundle structure ===" << std::endl;
     // std::cout << "Bundle size: " << bits.size() << " bytes" << std::endl;
@@ -727,7 +727,7 @@ std::vector<size_t> enumerateAllCodeObjects(hsa_agent_t agent, std::vector<uint8
 
 amd_comgr_code_object_info_t kernelDB::getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
-    auto code_object_offsets =  enumerateAllCodeObjects(agent, bits);
+    auto code_object_offsets =  findCodeObjectOffsets(agent, bits);
     size_t co_idx = 0;
     if (code_object_offsets.size() > 5)
         co_idx = 5; // Pick the 5th code object if there are that many
