@@ -276,7 +276,7 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
     bool result = true;
     std::unique_lock<std::shared_mutex> lock(mutex_);
     std::string strName = kernel.get()->getName();
-    std::cout << "Adding kernel \"" << strName << "\"" << std::endl;
+    // std::cout << "Adding kernel \"" << strName << "\"" << std::endl;
     if (kernels_.find(strName) == kernels_.end())
     {
         kernels_[strName] = std::move(kernel);
