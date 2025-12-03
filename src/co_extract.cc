@@ -41,12 +41,20 @@ std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName)
         {
             // Not a fat binary
             return result;
-        
+
         }
-        amd_comgr_code_object_info_t info = kernelDB::kernelDB::getCodeObjectInfo(agent, bits);
-        if (info.size)
+        std::vector<amd_comgr_code_object_info_t> code_objects = kernelDB::kernelDB::getCodeObjectInfo(agent, bits);
+        if (!code_objects.empty())
         {
-            result = create_temp_file_segment(fileName, section_offset + info.offset, info.size);
+            // Pick element: if more than 5 elements, use index 5; otherwise use index 0
+            size_t idx = code_objects.size() > 5 ? 5 : 0;
+            amd_comgr_code_object_info_t info = code_objects[idx];
+            if (info.size)
+            {
+                result = create_temp_file_segment(fileName, section_offset + info.offset, info.size);
+            }
+            else
+                std::cerr << "Unable to find code object for this ISA\n";
         }
         else
             std::cerr << "Unable to find code object for this ISA\n";

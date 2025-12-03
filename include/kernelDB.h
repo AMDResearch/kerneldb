@@ -199,7 +199,7 @@ public:
     void getKernelLines(const std::string& kernel, std::vector<uint32_t>& out);
     std::string getFileName(const std::string& kernel, size_t index);
     void getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers);
-    static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
+    static std::vector<amd_comgr_code_object_info_t> getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
 private:
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);

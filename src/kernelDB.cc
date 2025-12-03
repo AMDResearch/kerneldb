@@ -725,45 +725,41 @@ std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t
 }
 
 
-amd_comgr_code_object_info_t kernelDB::getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits)
+std::vector<amd_comgr_code_object_info_t> kernelDB::getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
-    auto code_object_offsets =  findCodeObjectOffsets(agent, bits);
-    size_t co_idx = 0;
-    if (code_object_offsets.size() > 5)
-        co_idx = 5; // Pick the 5th code object if there are that many
+    std::vector<amd_comgr_code_object_info_t> results;
+    auto code_object_offsets = findCodeObjectOffsets(agent, bits);
 
-    amd_comgr_data_t bundle;
-    std::vector<std::string> isas = getIsaList(agent);
-    std::cerr << "setting up code object lookup for " << isas.size() << " ISAs" << std::endl;
-    CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
-    CHECK_COMGR(amd_comgr_set_data(bundle, bits.size() - code_object_offsets[co_idx],
-                                   reinterpret_cast<const char *>(bits.data() + code_object_offsets[co_idx])));
-    if (isas.size())
+    for(size_t co_idx = 0; co_idx != code_object_offsets.size(); ++co_idx)
     {
-        std::vector<amd_comgr_code_object_info_t> ql;
-        for (int i = 0; i < isas.size(); i++)
-            ql.push_back({isas[i].c_str(),0,0});
-        //for(auto co : ql)
-        //    std::cerr << "{" << co.isa << "," << co.size << "," << co.offset << "}" << std::endl;
-        //std::cerr << "query list size: " << ql.size() << std::endl;
-        std::cerr << "Looking up code object for agent\n";
-        CHECK_COMGR(amd_comgr_lookup_code_object(bundle,static_cast<amd_comgr_code_object_info_t *>(ql.data()), ql.size()));
-        std::cerr << "Lookup complete\n";
-        for (auto co : ql)
+        amd_comgr_data_t bundle;
+        std::vector<std::string> isas = getIsaList(agent);
+        CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
+        CHECK_COMGR(amd_comgr_set_data(bundle, bits.size() - code_object_offsets[co_idx],
+                                       reinterpret_cast<const char *>(bits.data() + code_object_offsets[co_idx])));
+        if (isas.size())
         {
-            co.offset += code_object_offsets[co_idx];
-            //std::cerr << "After query: " << std::endl;
-            //std::cerr << "{" << co.isa << "," << co.size << "," << co.offset << "}" << std::endl;
-            /* Use the first code object that is ISA-compatible with this agent */
-            if (co.size != 0)
+            std::vector<amd_comgr_code_object_info_t> ql;
+            for (int i = 0; i < isas.size(); i++)
+                ql.push_back({isas[i].c_str(), 0, 0});
+
+            CHECK_COMGR(amd_comgr_lookup_code_object(bundle, static_cast<amd_comgr_code_object_info_t *>(ql.data()), ql.size()));
+
+            for (auto co : ql)
             {
-                CHECK_COMGR(amd_comgr_release_data(bundle));
-                return co;
+                co.offset += code_object_offsets[co_idx];
+                /* Collect all ISA-compatible code objects */
+                if (co.size != 0)
+                {
+                    results.push_back(co);
+                    break;  // Only take the first compatible ISA for this bundle offset
+                }
             }
         }
+        CHECK_COMGR(amd_comgr_release_data(bundle));
     }
-    CHECK_COMGR(amd_comgr_release_data(bundle));
-    return {0,0,0};
+
+    return results;
 }
 
 void CDNAKernel::getSourceCode(std::vector<std::string>& outputLines)
@@ -844,10 +840,16 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         size_t section_offset = 0;
         std::vector<uint8_t> bits;
         getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
-        amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
-        if (info.size)
+        std::vector<amd_comgr_code_object_info_t> code_objects = getCodeObjectInfo(agent, bits);
+        if (!code_objects.empty())
         {
-            buildLineMap(section_offset + info.offset, info.size, elfFilePath);
+            // Pick element: if more than 5 elements, use index 5; otherwise use index 0
+            size_t idx = code_objects.size() > 5 ? 5 : 0;
+            amd_comgr_code_object_info_t info = code_objects[idx];
+            if (info.size)
+            {
+                buildLineMap(section_offset + info.offset, info.size, elfFilePath);
+            }
         }
     }
     else
