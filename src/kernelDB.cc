@@ -248,8 +248,13 @@ kernelDB::~kernelDB()
    }
    for (auto it : file_map_)
    {
-       if (it.first != it.second)
-        unlink(it.second.c_str());
+       // it.second is now a vector of file paths
+       for (const auto& file_path : it.second)
+       {
+           // Only unlink temp files (where original != extracted)
+           if (it.first != file_path)
+               unlink(file_path.c_str());
+       }
    }
 }
 
@@ -301,27 +306,33 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     {
         {
             std::unique_lock<std::shared_mutex> lock(mutex_);
-            file_map_[name] = name;
+            file_map_[name] = {name};
         }
         bValidExecutable = true;
     }
     else
     {
-        std::string tmp_hsaco = extractCodeObject(agent, name);
-        if (tmp_hsaco.length() != 0)
+        std::vector<std::string> tmp_hsacos = extractCodeObjects(agent, name);
+        if (!tmp_hsacos.empty())
         {
             {
                 std::unique_lock<std::shared_mutex> lock(mutex_);
-                file_map_[name] = tmp_hsaco;
+                file_map_[name] = tmp_hsacos;
             }
             bValidExecutable = true;
         }
     }
     if(bValidExecutable && isas.size())
     {
-        std::string strDisassembly;
-        getDisassembly(agent, file_map_[name], strDisassembly);
-        parseDisassembly(strDisassembly);
+        // Disassemble and parse each code object to discover all kernels
+        for (const auto& hsaco : file_map_[name])
+        {
+            std::string strDisassembly;
+            getDisassembly(agent, hsaco, strDisassembly);
+            parseDisassembly(strDisassembly);
+        }
+
+        // Then map all kernels to source
         try
         {
             mapDisassemblyToSource(agent, name.c_str());
@@ -827,7 +838,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
 
     std::map<Dwarf_Addr, SourceLocation> combined_addrMap;
 
-    if (!strFile.ends_with(".hsaco") && file_map_[strFile] == strFile)
+    if (!strFile.ends_with(".hsaco") && (file_map_[strFile].size() == 1 && file_map_[strFile][0] == strFile))
     {
         // Handle fat binaries with potentially multiple code objects
         size_t section_offset = 0;
@@ -851,8 +862,18 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
     }
     else
     {
-        // Handle single .hsaco file
-        if (!buildDwarfAddressMap(file_map_[strFile].c_str(), 0, 0, combined_addrMap))
+        // Handle single .hsaco file (or already-extracted code objects)
+        // file_map_[strFile] is a vector, iterate over all temp files
+        for (const auto& hsaco_file : file_map_[strFile])
+        {
+            std::map<Dwarf_Addr, SourceLocation> addrMap;
+            if (buildDwarfAddressMap(hsaco_file.c_str(), 0, 0, addrMap))
+            {
+                combined_addrMap.insert(addrMap.begin(), addrMap.end());
+            }
+        }
+
+        if (combined_addrMap.empty())
         {
             throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
         }
