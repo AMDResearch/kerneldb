@@ -767,54 +767,43 @@ void CDNAKernel::getSourceCode(std::vector<std::string>& outputLines)
 }
 
 
-void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath)
+void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap)
 {
-    std::map<Dwarf_Addr, SourceLocation> addrMap;
-    if (buildDwarfAddressMap(elfFilePath, offset, hsaco_length, addrMap))
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    auto it = kernels_.begin();
+    while(it != kernels_.end())
     {
-        std::unique_lock<std::shared_mutex> lock(mutex_);
-        auto it = kernels_.begin();
-        while(it != kernels_.end())
+        const auto& blocks = it->second.get()->getBasicBlocks();
+        for (const auto& block : blocks)
         {
-
-            const auto& blocks = it->second.get()->getBasicBlocks();
-            //for (size_t i=0; i < blocks.size(); i++)
-            for (const auto& block : blocks)
+            assert(block.get());
+            auto& instructions = block.get()->getModifiableInstructions();
+            for(auto& instruction : instructions)
             {
-                assert(block.get());
-                auto& instructions = block.get()->getModifiableInstructions();
-                for(auto& instruction : instructions)
+                try
                 {
-                    bool bSuccess;
-
-                    try
-                    {
-                        SourceLocation source = getSourceLocation(addrMap, instruction.address_);
-                        instruction_t inst = instruction;
-                        instruction.line_ = inst.line_ = source.lineNumber;
-                        instruction.column_ = inst.column_ = source.columnNumber;
-                        instruction.block_ = inst.block_ = block.get();
-                        instruction.path_id_ = inst.path_id_ = it->second.get()->addFileName(source.fileName);
-                        it->second.get()->addLine(source.lineNumber, inst);
-                    }
-                    catch(std::runtime_error e)
-                    {
-                        instruction_t inst = instruction;
-                        instruction.line_ = inst.line_ = MISSING_SOURCE_INFO;
-                        instruction.column_ = inst.column_ = MISSING_SOURCE_INFO;
-                        instruction.block_ = inst.block_ = block.get();
-                        instruction.path_id_ = inst.path_id_ = MISSING_SOURCE_INFO;
-                        it->second.get()->addLine(MISSING_SOURCE_INFO, inst);
-                        //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
-                    }
+                    SourceLocation source = getSourceLocation(addrMap, instruction.address_);
+                    instruction_t inst = instruction;
+                    instruction.line_ = inst.line_ = source.lineNumber;
+                    instruction.column_ = inst.column_ = source.columnNumber;
+                    instruction.block_ = inst.block_ = block.get();
+                    instruction.path_id_ = inst.path_id_ = it->second.get()->addFileName(source.fileName);
+                    it->second.get()->addLine(source.lineNumber, inst);
+                }
+                catch(std::runtime_error e)
+                {
+                    instruction_t inst = instruction;
+                    instruction.line_ = inst.line_ = MISSING_SOURCE_INFO;
+                    instruction.column_ = inst.column_ = MISSING_SOURCE_INFO;
+                    instruction.block_ = inst.block_ = block.get();
+                    instruction.path_id_ = inst.path_id_ = MISSING_SOURCE_INFO;
+                    it->second.get()->addLine(MISSING_SOURCE_INFO, inst);
+                    //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
                 }
             }
-            it++;
         }
+        it++;
     }
-    else
-        throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
-
 }
 
 void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
@@ -834,27 +823,48 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         reliably but requires an encapsulated hsaco binary (i.e. it can't cope with
         fat binaries evidently.
     */
-   std::cerr << "Mapping disassembly to source for " << strFile << std::endl;
+    std::cerr << "Mapping disassembly to source for " << strFile << std::endl;
+
+    std::map<Dwarf_Addr, SourceLocation> combined_addrMap;
+
     if (!strFile.ends_with(".hsaco") && file_map_[strFile] == strFile)
     {
+        // Handle fat binaries with potentially multiple code objects
         size_t section_offset = 0;
         std::vector<uint8_t> bits;
         getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
         std::vector<amd_comgr_code_object_info_t> code_objects = getCodeObjectInfo(agent, bits);
-        if (!code_objects.empty())
+
+        // Build and merge address maps for all code objects
+        for (const auto& info : code_objects)
         {
-            // Pick element: if more than 5 elements, use index 5; otherwise use index 0
-            size_t idx = code_objects.size() > 5 ? 5 : 0;
-            amd_comgr_code_object_info_t info = code_objects[idx];
             if (info.size)
             {
-                buildLineMap(section_offset + info.offset, info.size, elfFilePath);
+                std::map<Dwarf_Addr, SourceLocation> addrMap;
+                if (buildDwarfAddressMap(elfFilePath, section_offset + info.offset, info.size, addrMap))
+                {
+                    combined_addrMap.insert(addrMap.begin(), addrMap.end());
+                }
             }
         }
     }
     else
     {
-        buildLineMap(0, 0, file_map_[strFile].c_str());
+        // Handle single .hsaco file
+        if (!buildDwarfAddressMap(file_map_[strFile].c_str(), 0, 0, combined_addrMap))
+        {
+            throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
+        }
+    }
+
+    // Process all kernels once with the combined address map
+    if (!combined_addrMap.empty())
+    {
+        processKernelsWithAddressMap(combined_addrMap);
+    }
+    else
+    {
+        throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
     }
 }
 

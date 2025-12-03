@@ -96,7 +96,7 @@ struct SourceLocation {
 };
 
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap);
-SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
+SourceLocation getSourceLocation(const std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
 __attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out);
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
@@ -106,7 +106,7 @@ __attribute__((visibility("default"))) std::string extractCodeObject(hsa_agent_t
 namespace kernelDB {
 
 class basicBlock;
-    
+
 std::string getKernelName(const std::string& name);
 
 typedef struct instruction_s{
@@ -134,7 +134,7 @@ enum parse_mode {
 
 
 class __attribute__((visibility("default"))) basicBlock {
-public: 
+public:
     basicBlock();
     ~basicBlock() = default;
     void addInstruction(const instruction_t& instruction);
@@ -202,7 +202,7 @@ public:
     static std::vector<amd_comgr_code_object_info_t> getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
 private:
-    void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
+    void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap);
     parse_mode getLineType(std::string& line);
     std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);
@@ -253,7 +253,7 @@ static inline size_t split(std::string const& s,
                 // append the current field to the given container
                 container.push_back(std::string(first, it));
                 ++n;
-                
+
                 // skip the delimiter
                 first = it + 1;
             }

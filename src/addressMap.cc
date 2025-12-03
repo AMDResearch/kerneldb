@@ -56,7 +56,7 @@ std::optional<Dwarf_Addr> find_floor_key(const std::map<Dwarf_Addr, T>& map, Dwa
 bool is_subprogram(Dwarf_Die die, Dwarf_Error *error) {
     Dwarf_Half tag;
     int result = dwarf_tag(die, &tag, error);
-    if (result != DW_DLV_OK) 
+    if (result != DW_DLV_OK)
     {
         printf("Error getting subprogram tag\n");
         return 0; // Error occurred
@@ -101,11 +101,11 @@ bool process_function_die(Dwarf_Debug dbg, Dwarf_Die die, uint32_t& decl_line) {
 }
 
 
-SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr)
+SourceLocation getSourceLocation(const std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr)
 {
     auto key = find_floor_key<SourceLocation>(addrMap, addr);
     if (key.has_value())
-        return addrMap[*key];
+        return addrMap.at(*key);
     else
         throw std::runtime_error("No matching key for this address.\n");
 }
@@ -202,7 +202,7 @@ void enumerate_subprograms(Dwarf_Debug dbg, Dwarf_Die cu_die) {
                         printf("Subprogram: %s\n", name);
                         dwarf_dealloc_attribute(name_attr);
                     }
-                    
+
                     Dwarf_Attribute file_attr;
                     Dwarf_Unsigned file_index = 0;
                     if (dwarf_attr(child_die, DW_AT_decl_file, &file_attr, &err) == DW_DLV_OK) {
@@ -269,7 +269,7 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     if (fd < 0) {
         throw std::runtime_error("Failed to open file");
     }
-    
+
 
     // Initialize DWARF
     Dwarf_Debug dbg;
@@ -302,7 +302,7 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     Dwarf_Sig8 type_sig;
     Dwarf_Unsigned next_cu_header, type_offset;
     while (dwarf_next_cu_header_d(dbg, true, &cu_header_length, &version_stamp, &abbrev_offset,
-                                &address_size, &length_size, &extension_size, &type_sig, &type_offset, 
+                                &address_size, &length_size, &extension_size, &type_sig, &type_offset,
                                 &next_cu_header, &header_cu_type, &err) == DW_DLV_OK) {
         Dwarf_Die cu_die = 0;
         if (dwarf_siblingof_b(dbg, NULL, true, &cu_die, &err) != DW_DLV_OK) {
@@ -393,4 +393,3 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
 
     return true;
 }
-
