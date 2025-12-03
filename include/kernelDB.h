@@ -111,7 +111,7 @@ struct KernelArgument {
 };
 
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap);
-SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
+SourceLocation getSourceLocation(const std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
 __attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out);
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
@@ -225,6 +225,7 @@ public:
 private:
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs);
+    void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap);
     parse_mode getLineType(std::string& line);
     std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);

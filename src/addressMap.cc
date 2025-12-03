@@ -104,11 +104,11 @@ bool process_function_die(Dwarf_Debug dbg, Dwarf_Die die, uint32_t& decl_line) {
 }
 
 
-SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr)
+SourceLocation getSourceLocation(const std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr)
 {
     auto key = find_floor_key<SourceLocation>(addrMap, addr);
     if (key.has_value())
-        return addrMap[*key];
+        return addrMap.at(*key);
     else
         throw std::runtime_error("No matching key for this address.\n");
 }
@@ -1115,4 +1115,3 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
 
     return !kernelArgsMap.empty();
 }
-
