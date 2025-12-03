@@ -288,7 +288,7 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
     }
     else
     {
-        std::cout << "You're adding kernel \"" << strName << "\" which we've seen before. Something may be wrong." << std::endl;
+        // std::cout << "You're adding kernel \"" << strName << "\" which we've seen before. Something may be wrong." << std::endl;
         kernels_[strName] = std::move(kernel);
         result = false;
     }
