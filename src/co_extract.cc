@@ -26,9 +26,9 @@ THE SOFTWARE.
 #include "include/kernelDB.h"
 
 
-std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName)
+std::vector<std::string> extractCodeObjects(hsa_agent_t agent, const std::string& fileName)
 {
-    std::string result;
+    std::vector<std::string> results;
     if (!fileName.ends_with(".hsaco"))
     {
         size_t section_offset = 0;
@@ -40,26 +40,24 @@ std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName)
         catch (const std::runtime_error& e)
         {
             // Not a fat binary
-            return result;
-
+            return results;
         }
+
         std::vector<amd_comgr_code_object_info_t> code_objects = kernelDB::kernelDB::getCodeObjectInfo(agent, bits);
-        if (!code_objects.empty())
+
+        // Extract ALL code objects
+        for (const auto& info : code_objects)
         {
-            // Pick element: if more than 5 elements, use index 5; otherwise use index 0
-            size_t idx = code_objects.size() > 5 ? 5 : 0;
-            amd_comgr_code_object_info_t info = code_objects[idx];
             if (info.size)
             {
-                result = create_temp_file_segment(fileName, section_offset + info.offset, info.size);
+                std::string temp_file = create_temp_file_segment(fileName, section_offset + info.offset, info.size);
+                results.push_back(temp_file);
             }
-            else
-                std::cerr << "Unable to find code object for this ISA\n";
         }
-        else
-            std::cerr << "Unable to find code object for this ISA\n";
     }
     else
-        result = fileName;
-    return result;
+    {
+        results.push_back(fileName);
+    }
+    return results;
 }

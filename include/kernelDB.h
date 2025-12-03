@@ -100,7 +100,7 @@ SourceLocation getSourceLocation(const std::map<Dwarf_Addr, SourceLocation>& add
 __attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out);
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
-__attribute__((visibility("default"))) std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName);
+__attribute__((visibility("default"))) std::vector<std::string> extractCodeObjects(hsa_agent_t agent, const std::string& fileName);
 
 
 namespace kernelDB {
@@ -211,7 +211,7 @@ private:
     amd_comgr_data_t executable_;
     hsa_agent_t agent_;
     std::string fileName_;
-    std::map<std::string, std::string> file_map_;
+    std::map<std::string, std::vector<std::string>> file_map_;
     std::shared_mutex mutex_;
 };
 
