@@ -325,10 +325,14 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     if(bValidExecutable && isas.size())
     {
         // Disassemble and parse each code object to discover all kernels
+        size_t code_object_index = 0;
         for (const auto& hsaco : file_map_[name])
         {
             std::string strDisassembly;
             getDisassembly(agent, hsaco, strDisassembly);
+            if(file_map_[name].size() > 1){
+                std::cout << "  parsing disassembly for code object " << code_object_index++ << ": ";
+            }
             parseDisassembly(strDisassembly);
         }
 
@@ -450,7 +454,7 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
            }
         }
     }while(std::getline(in,line));
-    std::cout << "Found " << markers.size() << " kernels\n";
+    // std::cout << "Found " << markers.size() << " kernels\n";
 }
 
 bool kernelDB::parseDisassembly(const std::string& text)
@@ -654,7 +658,6 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
 
 std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
-    std::cout << "=== Analyzing Clang Offload Bundle structure ===" << std::endl;
     // std::cout << "Bundle size: " << bits.size() << " bytes" << std::endl;
 
     const char* CLANG_OFFLOAD_MAGIC = "__CLANG_OFFLOAD_BUNDLE__";
@@ -731,7 +734,6 @@ std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t
     }
 
     std::cout << "Total Clang Offload Bundles found: " << bundle_offsets.size() << std::endl;
-    std::cout << "=== End analysis ===" << std::endl;
     return bundle_offsets;
 }
 
