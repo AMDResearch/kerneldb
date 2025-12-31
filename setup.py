@@ -4,6 +4,7 @@
 import os
 import sys
 import subprocess
+import shutil
 from pathlib import Path
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
@@ -34,15 +35,21 @@ class CMakeBuild(build_ext):
         # CMake configuration
         import sysconfig
         python_include = sysconfig.get_path('include')
-        source_pkg_dir = Path(__file__).parent / 'kerneldb'
-        source_pkg_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Build to a temporary directory
+        cmake_output_dir = build_temp / 'output'
+        cmake_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get Python library path for linking
+        python_lib = sysconfig.get_config_var('LIBDIR')
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
 
         cmake_args = [
-            f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={source_pkg_dir}',
-            f'-DCMAKE_INSTALL_PREFIX={source_pkg_dir}',
-            f'-DPYTHON_EXECUTABLE={sys.executable}',
+            f'-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={cmake_output_dir}',
+            f'-DCMAKE_INSTALL_PREFIX={cmake_output_dir}',
             f'-DPython3_EXECUTABLE={sys.executable}',
             f'-DPython3_INCLUDE_DIR={python_include}',
+            f'-DPython3_LIBRARY={python_lib}/libpython{python_version}.so',
             '-DCMAKE_BUILD_TYPE=Release',
             '-DBUILD_PYTHON_BINDINGS=ON',
         ]
@@ -64,7 +71,7 @@ class CMakeBuild(build_ext):
 
         # Build both the C++ library and Python module
         print(f"\n{'='*60}")
-        print(f"Building directly into: {source_pkg_dir}")
+        print(f"Building into: {cmake_output_dir}")
         print(f"{'='*60}\n")
 
         subprocess.check_call(
@@ -73,11 +80,27 @@ class CMakeBuild(build_ext):
         )
 
         print(f"\n{'='*60}")
-        print("✓ Build complete! No copying needed.")
+        print("✓ Build complete!")
+        print(f"Extension directory: {extdir}")
         print(f"{'='*60}\n")
+
+        # Copy the built files to the extension directory
+        extdir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy the Python extension module
+        for so_file in cmake_output_dir.glob('_kerneldb*.so'):
+            dest = extdir / so_file.name
+            print(f"Copying {so_file} -> {dest}")
+            shutil.copy2(so_file, dest)
+        
+        # Copy the C++ library (needed by the Python module)
+        for lib_file in cmake_output_dir.glob('libkernelDB64.so*'):
+            dest = extdir / lib_file.name
+            print(f"Copying {lib_file} -> {dest}")
+            shutil.copy2(lib_file, dest)
 
 
 setup(
-    ext_modules=[CMakeExtension('kerneldb')],
+    ext_modules=[CMakeExtension('kerneldb._kerneldb')],
     cmdclass={'build_ext': CMakeBuild},
 )

@@ -20,7 +20,18 @@ from .api import (
     KernelArgument,
 )
 
-__version__ = "0.1.0"
+# Get version from package metadata
+try:
+    from importlib.metadata import version, PackageNotFoundError
+except ImportError:
+    # Python < 3.8
+    from importlib_metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("kerneldb")
+except PackageNotFoundError:
+    # Package is not installed, use fallback
+    __version__ = "0.0.0+unknown"
 __all__ = [
     "KernelDB",
     "Kernel",
