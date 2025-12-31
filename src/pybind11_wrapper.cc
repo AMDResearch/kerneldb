@@ -23,14 +23,14 @@ PYBIND11_MODULE(_kerneldb, m) {
              py::arg("name"), py::arg("type"), py::arg("size"), py::arg("offset"),
              py::arg("alignment"), py::arg("position"))
         .def_readonly("name", &KernelArgument::name)
-        .def_readonly("type", &KernelArgument::type)
+        .def_readonly("type_name", &KernelArgument::type_name)
         .def_readonly("size", &KernelArgument::size)
         .def_readonly("offset", &KernelArgument::offset)      // 0 for top-level, actual offset for members
         .def_readonly("alignment", &KernelArgument::alignment) // relevant for top-level args
         .def_readonly("position", &KernelArgument::position)   // 0-based for top-level, 0 for members
         .def_readonly("members", &KernelArgument::members)     // recursive!
         .def("__repr__", [](const KernelArgument &arg) {
-            return "<KernelArgument '" + arg.name + "': " + arg.type +
+            return "<KernelArgument '" + arg.name + "': " + arg.type_name +
                    " (size=" + std::to_string(arg.size) +
                    ", offset=" + std::to_string(arg.offset) +
                    ", pos=" + std::to_string(arg.position) + ")>";

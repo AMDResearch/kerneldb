@@ -98,7 +98,7 @@ struct SourceLocation {
 // Structure to hold kernel argument info (recursive for struct members)
 struct KernelArgument {
     std::string name;
-    std::string type;
+    std::string type_name;
     size_t size;          // Size in bytes
     size_t offset;        // Offset within parent struct (0 for top-level args)
     size_t alignment;     // Alignment requirement (relevant for top-level args)
@@ -107,7 +107,7 @@ struct KernelArgument {
 
     KernelArgument(const std::string& n = "", const std::string& t = "",
                    size_t sz = 0, size_t off = 0, size_t align = 0, uint32_t pos = 0)
-        : name(n), type(t), size(sz), offset(off), alignment(align), position(pos) {}
+        : name(n), type_name(t), size(sz), offset(off), alignment(align), position(pos) {}
 };
 
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap);

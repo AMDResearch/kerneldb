@@ -1007,7 +1007,7 @@ bool extractArgumentsFromMetadata(const char* filename, size_t offset, size_t hs
                                         arg.offset = 0;
                                         arg.alignment = 0;
                                         arg.name = "arg" + std::to_string(a);
-                                        arg.type = "unknown";
+                                        arg.type_name = "unknown";
                                         arg.size = 0;
 
                                         // Each arg is a map
@@ -1023,13 +1023,13 @@ bool extractArgumentsFromMetadata(const char* filename, size_t offset, size_t hs
                                         } else if (argKey == ".value_kind") {
                                             std::string kind = parser.readString();
                                             if (kind == "global_buffer") {
-                                                arg.type = "ptr";
+                                                arg.type_name = "ptr";
                                             } else if (kind == "by_value") {
-                                                if (arg.size == 4) arg.type = "i32";
-                                                else if (arg.size == 8) arg.type = "i64";
-                                                else arg.type = "value";
+                                                if (arg.size == 4) arg.type_name = "i32";
+                                                else if (arg.size == 8) arg.type_name = "i64";
+                                                else arg.type_name = "value";
                                             } else {
-                                                arg.type = kind;
+                                                arg.type_name = kind;
                                             }
                                         } else {
                                             parser.skip();
@@ -1047,7 +1047,7 @@ bool extractArgumentsFromMetadata(const char* filename, size_t offset, size_t hs
                             // Triton adds a hidden pointer argument at the end for internal metadata
                             // Detect and filter it out: last arg is ptr (size 8, global_buffer)
                             // This only applies when parsing from metadata (Triton doesn't emit DWARF)
-                            if (args.size() > 0 && args.back().type == "ptr" && args.back().size == 8) {
+                            if (args.size() > 0 && args.back().type_name == "ptr" && args.back().size == 8) {
                                 // Check if this looks like Triton's hidden argument
                                 // All Triton args from metadata have generic names like "arg0", "arg1"
                                 // and the last one is always a pointer
