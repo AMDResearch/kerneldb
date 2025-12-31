@@ -117,7 +117,6 @@ bool invokeProgram(const std::string& programName, const std::vector<std::string
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
 __attribute__((visibility("default"))) std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName);
 bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_length, std::map<std::string, std::vector<KernelArgument>>& kernelArgsMap);
-bool extractArgumentsFromMetadata(const char* filename, size_t offset, size_t hsaco_length, std::map<std::string, std::vector<KernelArgument>>& kernelArgsMap);
 
 
 namespace kernelDB {

@@ -846,23 +846,11 @@ void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFileP
             if (info.size)
             {
                 extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap);
-
-                // If DWARF didn't find anything, try metadata
-                if (kernelArgsMap.empty())
-                {
-                    extractArgumentsFromMetadata(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap);
-                }
             }
         }
         else
         {
             extractKernelArguments(file_map_[strFile].c_str(), 0, 0, kernelArgsMap);
-
-            // If DWARF didn't find anything, try metadata (for Triton kernels)
-            if (kernelArgsMap.empty())
-            {
-                extractArgumentsFromMetadata(file_map_[strFile].c_str(), 0, 0, kernelArgsMap);
-            }
         }
 
         // Store the arguments in the kernel objects
