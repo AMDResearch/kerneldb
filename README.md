@@ -30,7 +30,7 @@ Once a kernelDB instance has been created, data regarding all load/store instruc
 you're interested in.
 
 Under the test directory there is a small test program (kdbtest) that exercises the API and can serve as an example of one way to use the api.
-```
+```c++
 #include <iostream>
 #include <string>
 #include "inc/kernelDB.h"
@@ -141,8 +141,4 @@ for kernel_name in kdb.get_kernels():
     mem_ops = kdb.get_instructions_for_line(kernel_name, line, ".*(load|store).*")
 ```
 
-See the `examples/` directory for complete examples including:
-- `01_hip_kernels/` - Compiling and analyzing HIP code
-- `02_triton_kernels/` - Running and analyzing Triton kernels
-
-For more details, see `examples/README.md`.
+See the `examples/` directory for complete examples.
