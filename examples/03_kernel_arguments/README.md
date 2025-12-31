@@ -22,10 +22,10 @@ Marker Count: 1 Kernel Count: 1
 
 Kernel: vector_add(double*, double*, double*, int)
   Arguments (4):
-    a: double* (size=8, align=0)
-    b: double* (size=8, align=0)
-    c: double* (size=8, align=0)
-    n: int (size=4, align=0)
+    a: double* (size=8, align=8)
+    b: double* (size=8, align=8)
+    c: double* (size=8, align=8)
+    n: int (size=4, align=4)
 Ending kernelDB
 Found 1 kernels.
 ```

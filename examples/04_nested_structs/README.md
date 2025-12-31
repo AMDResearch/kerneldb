@@ -31,10 +31,10 @@ Kernel: update_particles(Particle*, BoundingBox, int)
 Arguments (3):
 
   [1] particles: struct Particle*
-      Size: 8 bytes, Alignment: 0 bytes
+      Size: 8 bytes, Alignment: 8 bytes
 
   [2] bounds: struct BoundingBox
-      Size: 24 bytes, Alignment: 0 bytes
+      Size: 24 bytes, Alignment: 4 bytes
       Struct members:
         min: struct Point3D (size=12, offset=0)
           Members:
@@ -48,7 +48,7 @@ Arguments (3):
             z: float (size=4, offset=8)
 
   [3] count: int
-      Size: 4 bytes, Alignment: 0 bytes
+      Size: 4 bytes, Alignment: 4 bytes
 Ending kernelDB
 Found 1 kernels.
 ```

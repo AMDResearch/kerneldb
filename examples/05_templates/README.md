@@ -9,7 +9,7 @@ python example.py
 ## Output
 
 ```
-emplate Kernels Example
+Template Kernels Example
 ================================================================================
 
 [1/2] Compiling HIP code...
@@ -23,24 +23,24 @@ Found 3 template instantiation(s)
 
 Kernel: void scale_values<double>(double*, double*, double, int)
   Arguments (4):
-    input: double* (size=8, align=0)
-    output: double* (size=8, align=0)
-    factor: double (size=8, align=0)
-    n: int (size=4, align=0)
+    input: double* (size=8, align=8)
+    output: double* (size=8, align=8)
+    factor: double (size=8, align=8)
+    n: int (size=4, align=4)
 
 Kernel: void scale_values<float>(float*, float*, float, int)
   Arguments (4):
-    input: float* (size=8, align=0)
-    output: float* (size=8, align=0)
-    factor: float (size=4, align=0)
-    n: int (size=4, align=0)
+    input: float* (size=8, align=8)
+    output: float* (size=8, align=8)
+    factor: float (size=4, align=4)
+    n: int (size=4, align=4)
 
 Kernel: void scale_values<int>(int*, int*, int, int)
   Arguments (4):
-    input: int* (size=8, align=0)
-    output: int* (size=8, align=0)
-    factor: int (size=4, align=0)
-    n: int (size=4, align=0)
+    input: int* (size=8, align=8)
+    output: int* (size=8, align=8)
+    factor: int (size=4, align=4)
+    n: int (size=4, align=4)
 
 Ending kernelDB
 Found 3 kernels.
