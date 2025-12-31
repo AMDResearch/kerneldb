@@ -567,9 +567,6 @@ std::string resolveTypeName(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *er
     return "unknown";
 }
 
-// Helper function to get type size
-// Helper function to calculate alignment based on type
-// Most types align to their size (up to 8 bytes on 64-bit systems)
 size_t getTypeAlignment(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
     if (!type_die) {
         return 0;
