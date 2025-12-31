@@ -568,6 +568,94 @@ std::string resolveTypeName(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *er
 }
 
 // Helper function to get type size
+// Helper function to calculate alignment based on type
+// Most types align to their size (up to 8 bytes on 64-bit systems)
+size_t getTypeAlignment(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
+    if (!type_die) {
+        return 0;
+    }
+
+    // First try to get explicit alignment attribute
+    // Compilers emit this when using `alignas()`
+    Dwarf_Attribute align_attr;
+    if (dwarf_attr(type_die, DW_AT_alignment, &align_attr, err) == DW_DLV_OK) {
+        Dwarf_Unsigned align;
+        if (dwarf_formudata(align_attr, &align, err) == DW_DLV_OK) {
+            dwarf_dealloc_attribute(align_attr);
+            return static_cast<size_t>(align);
+        }
+        dwarf_dealloc_attribute(align_attr);
+    }
+
+    // If no explicit alignment, calculate based on type
+    Dwarf_Half tag;
+    if (dwarf_tag(type_die, &tag, err) != DW_DLV_OK) {
+        return 0;
+    }
+
+    // Pointers always align to 8 bytes on 64-bit systems
+    if (tag == DW_TAG_pointer_type) {
+        return 8;
+    }
+
+    // For structures/classes, alignment is the max alignment of members
+    if (tag == DW_TAG_structure_type || tag == DW_TAG_class_type) {
+        size_t max_member_align = 1;
+
+        // Walk through struct members to find max alignment
+        Dwarf_Die child_die = NULL;
+        if (dwarf_child(type_die, &child_die, err) == DW_DLV_OK) {
+            do {
+                Dwarf_Half child_tag;
+                if (dwarf_tag(child_die, &child_tag, err) == DW_DLV_OK &&
+                    child_tag == DW_TAG_member) {
+
+                    // Get member's type
+                    Dwarf_Attribute type_attr;
+                    if (dwarf_attr(child_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+                        Dwarf_Off type_offset;
+                        if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                            Dwarf_Die member_type_die;
+                            if (dwarf_offdie_b(dbg, type_offset, true, &member_type_die, err) == DW_DLV_OK) {
+                                // Recursively get member alignment
+                                size_t member_align = getTypeAlignment(dbg, member_type_die, err);
+                                max_member_align = std::max(max_member_align, member_align);
+                                dwarf_dealloc(dbg, member_type_die, DW_DLA_DIE);
+                            }
+                        }
+                        dwarf_dealloc_attribute(type_attr);
+                    }
+                }
+
+                Dwarf_Die sibling_die = NULL;
+                int res = dwarf_siblingof_b(dbg, child_die, true, &sibling_die, err);
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+                child_die = sibling_die;
+                if (res != DW_DLV_OK) break;
+            } while (child_die);
+        }
+
+        // Struct alignment is the max of member alignments, capped at 8 for typical AMD64 ABI
+        return std::min(max_member_align, static_cast<size_t>(8));
+    }
+
+    // For base types, alignment typically equals size, capped at 8 bytes
+    // This works for: char(1), short(2), int(4), float(4), double(8), long(8)
+    Dwarf_Attribute size_attr;
+    if (dwarf_attr(type_die, DW_AT_byte_size, &size_attr, err) == DW_DLV_OK) {
+        Dwarf_Unsigned size;
+        if (dwarf_formudata(size_attr, &size, err) == DW_DLV_OK) {
+            dwarf_dealloc_attribute(size_attr);
+            // For base types, alignment = min(size, 8)
+            // This is correct for standard C/C++ types on AMD64
+            return std::min(static_cast<size_t>(size), static_cast<size_t>(8));
+        }
+        dwarf_dealloc_attribute(size_attr);
+    }
+
+    return 0;
+}
+
 size_t getTypeSize(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
     if (!type_die) {
         return 0;
@@ -870,16 +958,7 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
                                                         if (dwarf_offdie_b(dbg, type_offset, true, &type_die, &err) == DW_DLV_OK) {
                                                             typeStr = resolveTypeName(dbg, type_die, &err);
                                                             typeSize = getTypeSize(dbg, type_die, &err);
-
-                                                            // Get alignment if available
-                                                            Dwarf_Attribute align_attr;
-                                                            if (dwarf_attr(type_die, DW_AT_alignment, &align_attr, &err) == DW_DLV_OK) {
-                                                                Dwarf_Unsigned align;
-                                                                if (dwarf_formudata(align_attr, &align, &err) == DW_DLV_OK) {
-                                                                    alignment = static_cast<size_t>(align);
-                                                                }
-                                                                dwarf_dealloc_attribute(align_attr);
-                                                            }
+                                                            alignment = getTypeAlignment(dbg, type_die, &err);
 
                                                             // Create kernel argument (offset is 0 for top-level args)
                                                             KernelArgument arg(paramNameStr, typeStr, typeSize, 0, alignment, arg_position);
