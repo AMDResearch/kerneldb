@@ -1166,8 +1166,32 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
                         char *kernel_name = NULL;
                         Dwarf_Attribute name_attr;
 
-                        if (dwarf_attr(child_die, DW_AT_name, &name_attr, &err) == DW_DLV_OK) {
+                        // Try DW_AT_linkage_name first (contains mangled name for templates/C++)
+                        bool found_name = false;
+                        if (dwarf_attr(child_die, DW_AT_linkage_name, &name_attr, &err) == DW_DLV_OK) {
                             if (dwarf_formstring(name_attr, &kernel_name, &err) == DW_DLV_OK && kernel_name) {
+                                found_name = true;
+                            }
+                            dwarf_dealloc_attribute(name_attr);
+                        }
+
+                        // Fall back to DW_AT_MIPS_linkage_name (older DWARF versions)
+                        if (!found_name && dwarf_attr(child_die, DW_AT_MIPS_linkage_name, &name_attr, &err) == DW_DLV_OK) {
+                            if (dwarf_formstring(name_attr, &kernel_name, &err) == DW_DLV_OK && kernel_name) {
+                                found_name = true;
+                            }
+                            dwarf_dealloc_attribute(name_attr);
+                        }
+
+                        // Fall back to DW_AT_name if no linkage name
+                        if (!found_name && dwarf_attr(child_die, DW_AT_name, &name_attr, &err) == DW_DLV_OK) {
+                            if (dwarf_formstring(name_attr, &kernel_name, &err) == DW_DLV_OK && kernel_name) {
+                                found_name = true;
+                            }
+                            dwarf_dealloc_attribute(name_attr);
+                        }
+
+                        if (found_name && kernel_name) {
                                 std::string kernelNameStr(kernel_name);
                                 std::vector<KernelArgument> args;
 
@@ -1256,8 +1280,6 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
 
                                 // Store kernel arguments
                                 kernelArgsMap[kernelNameStr] = args;
-                            }
-                            dwarf_dealloc_attribute(name_attr);
                         }
                     }
                 }
