@@ -18,7 +18,7 @@ Nested Structs Example
 Compilation successful
 
 [2/2] Analyzing kernel arguments...
-Adding /tmp/tmpr1j6513k
+Adding /tmp/tmp4xosp3gu
 Found 1 kernels
 Marker Count: 1 Kernel Count: 1
 Found 1 kernel(s)
@@ -32,6 +32,19 @@ Arguments (3):
 
   [1] particles: struct Particle*
       Size: 8 bytes, Alignment: 8 bytes
+      Struct members:
+        position: struct Point3D (size=12, offset=0)
+          Members:
+            x: float (size=4, offset=0)
+            y: float (size=4, offset=4)
+            z: float (size=4, offset=8)
+        velocity: struct Point3D (size=12, offset=12)
+          Members:
+            x: float (size=4, offset=0)
+            y: float (size=4, offset=4)
+            z: float (size=4, offset=8)
+        mass: float (size=4, offset=24)
+        id: int (size=4, offset=28)
 
   [2] bounds: struct BoundingBox
       Size: 24 bytes, Alignment: 4 bytes

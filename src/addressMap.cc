@@ -960,11 +960,33 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
                                                             // Create kernel argument (offset is 0 for top-level args)
                                                             KernelArgument arg(paramNameStr, typeStr, typeSize, 0, alignment, arg_position);
 
-                                                            // If this is a struct/class type (not a pointer), extract its members
+                                                            // If this is a struct/class type, extract its members
+                                                            // If it's a pointer to a struct, dereference it first
                                                             Dwarf_Half type_tag;
                                                             if (dwarf_tag(type_die, &type_tag, &err) == DW_DLV_OK) {
                                                                 if (type_tag == DW_TAG_structure_type || type_tag == DW_TAG_class_type) {
+                                                                    // Direct struct - extract members
                                                                     extractStructMembers(dbg, type_die, arg.members, &err);
+                                                                } else if (type_tag == DW_TAG_pointer_type) {
+                                                                    // Pointer type - check if it points to a struct
+                                                                    Dwarf_Attribute ptr_type_attr;
+                                                                    if (dwarf_attr(type_die, DW_AT_type, &ptr_type_attr, &err) == DW_DLV_OK) {
+                                                                        Dwarf_Off ptr_type_offset;
+                                                                        if (dwarf_global_formref(ptr_type_attr, &ptr_type_offset, &err) == DW_DLV_OK) {
+                                                                            Dwarf_Die ptr_type_die;
+                                                                            if (dwarf_offdie_b(dbg, ptr_type_offset, true, &ptr_type_die, &err) == DW_DLV_OK) {
+                                                                                Dwarf_Half ptr_type_tag;
+                                                                                if (dwarf_tag(ptr_type_die, &ptr_type_tag, &err) == DW_DLV_OK) {
+                                                                                    if (ptr_type_tag == DW_TAG_structure_type || ptr_type_tag == DW_TAG_class_type) {
+                                                                                        // Pointer to struct - extract the struct members
+                                                                                        extractStructMembers(dbg, ptr_type_die, arg.members, &err);
+                                                                                    }
+                                                                                }
+                                                                                dwarf_dealloc(dbg, ptr_type_die, DW_DLA_DIE);
+                                                                            }
+                                                                        }
+                                                                        dwarf_dealloc_attribute(ptr_type_attr);
+                                                                    }
                                                                 }
                                                             }
 
