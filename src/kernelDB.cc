@@ -264,7 +264,7 @@ CDNAKernel& kernelDB::getKernel(const std::string& name)
     else
         throw std::runtime_error(name + " kernel does not exist.");
 }
-    
+
 
 bool kernelDB::getBasicBlocks(const std::string& kernel, std::vector<basicBlock>&)
 {
@@ -387,7 +387,7 @@ parse_mode kernelDB::getLineType(std::string& line)
     }
     return result;
 }
-    
+
 void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers)
 {
     std::istringstream in(disassembly);
@@ -526,7 +526,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                     std::vector<std::string> inst_tokens;
                     instruction_t inst;
 
-                    // If there is more than one token and the first token contains underscores that means it's an instruction line 
+                    // If there is more than one token and the first token contains underscores that means it's an instruction line
                     if (tokens.size() > 1 && tokens[0].find("_") != std::string::npos)
                     {
                         split(tokens[0], inst_tokens, "_", false);
@@ -551,7 +551,7 @@ bool kernelDB::parseDisassembly(const std::string& text)
                         {
                             // This is the first line of a new block
                             // So add the current block and create a new one
-                            // Not all blocks end in branches, so when we come to 
+                            // Not all blocks end in branches, so when we come to
                             // an address identified as the target of a conditional branch
                             // we don't care if the current block ends with a branch instruction
                             // we just save it and create a new one.
@@ -727,7 +727,7 @@ void kernelDB::buildLineMap(size_t offset, size_t hsaco_length, const char *elfF
 void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath) {
     std::string strFile(elfFilePath);
     /*
-        the file_map_ maps binaries to the extracted code object (hsaco) contents 
+        the file_map_ maps binaries to the extracted code object (hsaco) contents
         that were written to /tmp.  We do this because we need to disassemble
         the code objects and we need libdwarf to read the debug information in code
         objects. So we extract a single copy of the code object and write it to tmp.
@@ -736,8 +736,8 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         being run. This way we're not extracting code objects multiple times when
         we want to use them multiple times.  All of this is a workaround to solve
         the problem of comgr disassembly having an upper bound of how many kernels
-        it can disassemble. Disassembly of code objects with large #'s of kernels will 
-        randomly not contain all of the kernels in a hsaco. llvm-objdump works more 
+        it can disassemble. Disassembly of code objects with large #'s of kernels will
+        randomly not contain all of the kernels in a hsaco. llvm-objdump works more
         reliably but requires an encapsulated hsaco binary (i.e. it can't cope with
         fat binaries evidently.
     */
@@ -750,11 +750,13 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         if (info.size)
         {
             buildLineMap(section_offset + info.offset, info.size, elfFilePath);
+            extractArgumentsFromDwarf(agent, elfFilePath);
         }
     }
     else
     {
         buildLineMap(0, 0, file_map_[strFile].c_str());
+        extractArgumentsFromDwarf(agent, elfFilePath);
     }
 }
 
@@ -773,7 +775,7 @@ std::string kernelDB::getFileName(const std::string& kernel, size_t index)
     else
         return "";
 }
-    
+
 std::vector<instruction_t> kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line, const std::string& match)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -815,10 +817,83 @@ void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& 
     }
 }
 
+std::vector<KernelArgument> kernelDB::getKernelArguments(const std::string& kernel_name)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    auto it = kernels_.find(getKernelName(kernel_name));
+    if (it != kernels_.end())
+    {
+        return it->second.get()->getArguments();
+    }
+    else
+        throw std::runtime_error("Unable to find kernel " + kernel_name);
+}
+
+void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath)
+{
+    std::string strFile(elfFilePath);
+    std::map<std::string, std::vector<KernelArgument>> kernelArgsMap;
+
+    try
+    {
+        // Try DWARF first (for HIP kernels with -g)
+        if (!strFile.ends_with(".hsaco") && file_map_[strFile] == strFile)
+        {
+            size_t section_offset = 0;
+            std::vector<uint8_t> bits;
+            getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
+            amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
+            if (info.size)
+            {
+                extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap);
+            }
+        }
+        else
+        {
+            extractKernelArguments(file_map_[strFile].c_str(), 0, 0, kernelArgsMap);
+        }
+
+        // Store the arguments in the kernel objects
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        for (const auto& entry : kernelArgsMap)
+        {
+            std::string demangledName = demangleName(entry.first.c_str());
+            std::string searchName = getKernelName(demangledName);
+
+            // Try to match by full name first
+            auto it = kernels_.find(searchName);
+
+            // If not found, try to match by prefix (for cases where DWARF has simple name
+            // but kernels_ has full signature)
+            if (it == kernels_.end())
+            {
+                for (auto& k : kernels_)
+                {
+                    // Check if kernel name starts with the DWARF name
+                    if (k.first.compare(0, searchName.length(), searchName) == 0 &&
+                        (k.first.length() == searchName.length() || k.first[searchName.length()] == '('))
+                    {
+                        k.second.get()->setArguments(entry.second);
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                it->second.get()->setArguments(entry.second);
+            }
+        }
+    }
+    catch (const std::runtime_error& e)
+    {
+        std::cerr << "Warning: Unable to extract kernel arguments from " << elfFilePath << ": " << e.what() << std::endl;
+    }
+}
+
 basicBlock::basicBlock()
 {
 }
-    
+
 
 const std::vector<instruction_t>& basicBlock::getInstructions()
 {
@@ -885,7 +960,7 @@ void CDNAKernel::printBlock(std::ostream& out, basicBlock *block, const std::str
                jt->second[inst.line_].push_back(inst.column_);
        }
    }
-   
+
    std::set<uint32_t> processed;
    for (auto inst : instructions)
    {
@@ -900,7 +975,7 @@ void CDNAKernel::printBlock(std::ostream& out, basicBlock *block, const std::str
                    out << it->second[inst.line_ - 1] << std::endl;
                else
                    out << "No source line reference for this instruction: " << inst.disassembly_ << std::endl;
-               out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl; 
+               out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl;
                processed.insert(inst.line_);
            }
        }
@@ -996,6 +1071,23 @@ const std::vector<instruction_t>& CDNAKernel::getInstructionsForLine(uint32_t li
    }
    else
        throw std::runtime_error("Unable to find instructions for line.");
+}
+
+void CDNAKernel::setArguments(const std::vector<KernelArgument>& args)
+{
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    arguments_ = args;
+}
+
+const std::vector<KernelArgument>& CDNAKernel::getArguments() const
+{
+    // No lock needed for const access
+    return arguments_;
+}
+
+bool CDNAKernel::hasArguments() const
+{
+    return !arguments_.empty();
 }
 
 }//kernelDB

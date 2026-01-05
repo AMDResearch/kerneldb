@@ -1,0 +1,21 @@
+# Include documentation
+include README.md
+include LICENSE
+
+# Include build configuration
+include pyproject.toml
+include CMakeLists.txt
+
+# Include source files
+recursive-include src *.cc *.cpp *.c *.h *.hpp
+recursive-include include *.h *.hpp
+recursive-include test *.cc *.cpp
+recursive-include cmake_modules *.cmake
+
+# Include Python package
+recursive-include kerneldb *.py
+recursive-include examples *.py *.md
+
+# Include built libraries and modules
+recursive-include kerneldb *.so
+include src/pybind11_wrapper.cc

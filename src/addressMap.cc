@@ -29,6 +29,9 @@ THE SOFTWARE.
 #include "include/kernelDB.h"
 #include <cstdint>
 #include <optional>
+#include <gelf.h>
+#include <libelf.h>
+#include <cstring>
 
 template <typename T>
 std::optional<Dwarf_Addr> find_floor_key(const std::map<Dwarf_Addr, T>& map, Dwarf_Addr target) {
@@ -56,7 +59,7 @@ std::optional<Dwarf_Addr> find_floor_key(const std::map<Dwarf_Addr, T>& map, Dwa
 bool is_subprogram(Dwarf_Die die, Dwarf_Error *error) {
     Dwarf_Half tag;
     int result = dwarf_tag(die, &tag, error);
-    if (result != DW_DLV_OK) 
+    if (result != DW_DLV_OK)
     {
         printf("Error getting subprogram tag\n");
         return 0; // Error occurred
@@ -202,7 +205,7 @@ void enumerate_subprograms(Dwarf_Debug dbg, Dwarf_Die cu_die) {
                         printf("Subprogram: %s\n", name);
                         dwarf_dealloc_attribute(name_attr);
                     }
-                    
+
                     Dwarf_Attribute file_attr;
                     Dwarf_Unsigned file_index = 0;
                     if (dwarf_attr(child_die, DW_AT_decl_file, &file_attr, &err) == DW_DLV_OK) {
@@ -269,7 +272,7 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     if (fd < 0) {
         throw std::runtime_error("Failed to open file");
     }
-    
+
 
     // Initialize DWARF
     Dwarf_Debug dbg;
@@ -302,7 +305,7 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     Dwarf_Sig8 type_sig;
     Dwarf_Unsigned next_cu_header, type_offset;
     while (dwarf_next_cu_header_d(dbg, true, &cu_header_length, &version_stamp, &abbrev_offset,
-                                &address_size, &length_size, &extension_size, &type_sig, &type_offset, 
+                                &address_size, &length_size, &extension_size, &type_sig, &type_offset,
                                 &next_cu_header, &header_cu_type, &err) == DW_DLV_OK) {
         Dwarf_Die cu_die = 0;
         if (dwarf_siblingof_b(dbg, NULL, true, &cu_die, &err) != DW_DLV_OK) {
@@ -392,5 +395,662 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
         unlink(inFileName.c_str());
 
     return true;
+}
+
+
+// Helper function to resolve type information from a type DIE
+std::string resolveTypeName(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
+    if (!type_die) {
+        return "void";
+    }
+
+    Dwarf_Half tag;
+    if (dwarf_tag(type_die, &tag, err) != DW_DLV_OK) {
+        return "unknown";
+    }
+
+    // Handle pointer types
+    if (tag == DW_TAG_pointer_type) {
+        Dwarf_Attribute type_attr;
+        if (dwarf_attr(type_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+            Dwarf_Off type_offset;
+            if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                Dwarf_Die pointee_die;
+                if (dwarf_offdie_b(dbg, type_offset, true, &pointee_die, err) == DW_DLV_OK) {
+                    std::string pointee_type = resolveTypeName(dbg, pointee_die, err);
+                    dwarf_dealloc(dbg, pointee_die, DW_DLA_DIE);
+                    dwarf_dealloc_attribute(type_attr);
+                    return pointee_type + "*";
+                }
+            }
+            dwarf_dealloc_attribute(type_attr);
+        }
+        return "void*";
+    }
+
+    // Handle const/volatile qualifiers
+    if (tag == DW_TAG_const_type || tag == DW_TAG_volatile_type || tag == DW_TAG_restrict_type) {
+        std::string qualifier = (tag == DW_TAG_const_type) ? "const " :
+                               (tag == DW_TAG_volatile_type) ? "volatile " : "restrict ";
+
+        Dwarf_Attribute type_attr;
+        if (dwarf_attr(type_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+            Dwarf_Off type_offset;
+            if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                Dwarf_Die qualified_die;
+                if (dwarf_offdie_b(dbg, type_offset, true, &qualified_die, err) == DW_DLV_OK) {
+                    std::string qualified_type = resolveTypeName(dbg, qualified_die, err);
+                    dwarf_dealloc(dbg, qualified_die, DW_DLA_DIE);
+                    dwarf_dealloc_attribute(type_attr);
+                    return qualifier + qualified_type;
+                }
+            }
+            dwarf_dealloc_attribute(type_attr);
+        }
+        return qualifier + "void";
+    }
+
+    // Handle typedef
+    if (tag == DW_TAG_typedef) {
+        char *typedef_name = NULL;
+        Dwarf_Attribute name_attr;
+        if (dwarf_attr(type_die, DW_AT_name, &name_attr, err) == DW_DLV_OK) {
+            if (dwarf_formstring(name_attr, &typedef_name, err) == DW_DLV_OK && typedef_name) {
+                std::string result(typedef_name);
+                dwarf_dealloc_attribute(name_attr);
+                return result;
+            }
+            dwarf_dealloc_attribute(name_attr);
+        }
+    }
+
+    // Handle base types
+    if (tag == DW_TAG_base_type) {
+        char *type_name = NULL;
+        Dwarf_Attribute name_attr;
+        if (dwarf_attr(type_die, DW_AT_name, &name_attr, err) == DW_DLV_OK) {
+            if (dwarf_formstring(name_attr, &type_name, err) == DW_DLV_OK && type_name) {
+                std::string result(type_name);
+                dwarf_dealloc_attribute(name_attr);
+                return result;
+            }
+            dwarf_dealloc_attribute(name_attr);
+        }
+        return "int";  // default fallback
+    }
+
+    // Handle structure/class types
+    if (tag == DW_TAG_structure_type || tag == DW_TAG_class_type) {
+        char *struct_name = NULL;
+        Dwarf_Attribute name_attr;
+        if (dwarf_attr(type_die, DW_AT_name, &name_attr, err) == DW_DLV_OK) {
+            if (dwarf_formstring(name_attr, &struct_name, err) == DW_DLV_OK && struct_name) {
+                std::string prefix = (tag == DW_TAG_structure_type) ? "struct " : "class ";
+                std::string result = prefix + std::string(struct_name);
+                dwarf_dealloc_attribute(name_attr);
+                return result;
+            }
+            dwarf_dealloc_attribute(name_attr);
+        }
+        return (tag == DW_TAG_structure_type) ? "struct <anonymous>" : "class <anonymous>";
+    }
+
+    // Handle array types
+    if (tag == DW_TAG_array_type) {
+        std::string element_type = "unknown";
+        std::string dimensions;
+
+        // Get the element type
+        Dwarf_Attribute type_attr;
+        if (dwarf_attr(type_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+            Dwarf_Off type_offset;
+            if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                Dwarf_Die elem_die;
+                if (dwarf_offdie_b(dbg, type_offset, true, &elem_die, err) == DW_DLV_OK) {
+                    element_type = resolveTypeName(dbg, elem_die, err);
+                    dwarf_dealloc(dbg, elem_die, DW_DLA_DIE);
+                }
+            }
+            dwarf_dealloc_attribute(type_attr);
+        }
+
+        // Get array dimensions (subrange)
+        Dwarf_Die child_die = NULL;
+        if (dwarf_child(type_die, &child_die, err) == DW_DLV_OK) {
+            do {
+                Dwarf_Half child_tag;
+                if (dwarf_tag(child_die, &child_tag, err) == DW_DLV_OK) {
+                    if (child_tag == DW_TAG_subrange_type) {
+                        Dwarf_Attribute count_attr;
+                        // Try DW_AT_count first
+                        if (dwarf_attr(child_die, DW_AT_count, &count_attr, err) == DW_DLV_OK) {
+                            Dwarf_Unsigned count;
+                            if (dwarf_formudata(count_attr, &count, err) == DW_DLV_OK) {
+                                dimensions = "[" + std::to_string(count) + "]";
+                            }
+                            dwarf_dealloc_attribute(count_attr);
+                        }
+                        // Try DW_AT_upper_bound if count not present
+                        else if (dwarf_attr(child_die, DW_AT_upper_bound, &count_attr, err) == DW_DLV_OK) {
+                            Dwarf_Unsigned upper;
+                            if (dwarf_formudata(count_attr, &upper, err) == DW_DLV_OK) {
+                                dimensions = "[" + std::to_string(upper + 1) + "]";
+                            }
+                            dwarf_dealloc_attribute(count_attr);
+                        }
+                        else {
+                            dimensions = "[]";
+                        }
+                    }
+                }
+
+                Dwarf_Die sibling_die = NULL;
+                if (dwarf_siblingof_b(dbg, child_die, true, &sibling_die, err) != DW_DLV_OK) {
+                    break;
+                }
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+                child_die = sibling_die;
+            } while (child_die != NULL);
+
+            if (child_die) {
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+            }
+        }
+
+        if (dimensions.empty()) {
+            dimensions = "[]";
+        }
+
+        return element_type + dimensions;
+    }
+
+    return "unknown";
+}
+
+size_t getTypeAlignment(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
+    if (!type_die) {
+        return 0;
+    }
+
+    // First try to get explicit alignment attribute
+    // Compilers emit this when using `alignas()`
+    Dwarf_Attribute align_attr;
+    if (dwarf_attr(type_die, DW_AT_alignment, &align_attr, err) == DW_DLV_OK) {
+        Dwarf_Unsigned align;
+        if (dwarf_formudata(align_attr, &align, err) == DW_DLV_OK) {
+            dwarf_dealloc_attribute(align_attr);
+            return static_cast<size_t>(align);
+        }
+        dwarf_dealloc_attribute(align_attr);
+    }
+
+    // If no explicit alignment, calculate based on type
+    Dwarf_Half tag;
+    if (dwarf_tag(type_die, &tag, err) != DW_DLV_OK) {
+        return 0;
+    }
+
+    // Pointers always align to 8 bytes on 64-bit systems
+    if (tag == DW_TAG_pointer_type) {
+        return 8;
+    }
+
+    // For structures/classes, alignment is the max alignment of members
+    if (tag == DW_TAG_structure_type || tag == DW_TAG_class_type) {
+        size_t max_member_align = 1;
+
+        // Walk through struct members to find max alignment
+        Dwarf_Die child_die = NULL;
+        if (dwarf_child(type_die, &child_die, err) == DW_DLV_OK) {
+            do {
+                Dwarf_Half child_tag;
+                if (dwarf_tag(child_die, &child_tag, err) == DW_DLV_OK &&
+                    child_tag == DW_TAG_member) {
+
+                    // Get member's type
+                    Dwarf_Attribute type_attr;
+                    if (dwarf_attr(child_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+                        Dwarf_Off type_offset;
+                        if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                            Dwarf_Die member_type_die;
+                            if (dwarf_offdie_b(dbg, type_offset, true, &member_type_die, err) == DW_DLV_OK) {
+                                // Recursively get member alignment
+                                size_t member_align = getTypeAlignment(dbg, member_type_die, err);
+                                max_member_align = std::max(max_member_align, member_align);
+                                dwarf_dealloc(dbg, member_type_die, DW_DLA_DIE);
+                            }
+                        }
+                        dwarf_dealloc_attribute(type_attr);
+                    }
+                }
+
+                Dwarf_Die sibling_die = NULL;
+                int res = dwarf_siblingof_b(dbg, child_die, true, &sibling_die, err);
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+                child_die = sibling_die;
+                if (res != DW_DLV_OK) break;
+            } while (child_die);
+        }
+
+        // Struct alignment is the max of member alignments, capped at 8 for typical AMD64 ABI
+        return std::min(max_member_align, static_cast<size_t>(8));
+    }
+
+    // For base types, alignment typically equals size, capped at 8 bytes
+    // This works for: char(1), short(2), int(4), float(4), double(8), long(8)
+    Dwarf_Attribute size_attr;
+    if (dwarf_attr(type_die, DW_AT_byte_size, &size_attr, err) == DW_DLV_OK) {
+        Dwarf_Unsigned size;
+        if (dwarf_formudata(size_attr, &size, err) == DW_DLV_OK) {
+            dwarf_dealloc_attribute(size_attr);
+            // For base types, alignment = min(size, 8)
+            // This is correct for standard C/C++ types on AMD64
+            return std::min(static_cast<size_t>(size), static_cast<size_t>(8));
+        }
+        dwarf_dealloc_attribute(size_attr);
+    }
+
+    return 0;
+}
+
+size_t getTypeSize(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
+    if (!type_die) {
+        return 0;
+    }
+
+    Dwarf_Attribute size_attr;
+    if (dwarf_attr(type_die, DW_AT_byte_size, &size_attr, err) == DW_DLV_OK) {
+        Dwarf_Unsigned size;
+        if (dwarf_formudata(size_attr, &size, err) == DW_DLV_OK) {
+            dwarf_dealloc_attribute(size_attr);
+            return static_cast<size_t>(size);
+        }
+        dwarf_dealloc_attribute(size_attr);
+    }
+
+    // For pointer types, return pointer size (typically 8 bytes on 64-bit systems)
+    Dwarf_Half tag;
+    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK) {
+        if (tag == DW_TAG_pointer_type) {
+            return 8;  // Assume 64-bit pointers for GPU code
+        }
+
+        // For array types, calculate size as element_size * count
+        if (tag == DW_TAG_array_type) {
+            size_t element_size = 0;
+            size_t array_count = 0;
+
+            // Get element type size
+            Dwarf_Attribute type_attr;
+            if (dwarf_attr(type_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+                Dwarf_Off type_offset;
+                if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                    Dwarf_Die elem_die;
+                    if (dwarf_offdie_b(dbg, type_offset, true, &elem_die, err) == DW_DLV_OK) {
+                        element_size = getTypeSize(dbg, elem_die, err);
+                        dwarf_dealloc(dbg, elem_die, DW_DLA_DIE);
+                    }
+                }
+                dwarf_dealloc_attribute(type_attr);
+            }
+
+            // Get array count from subrange
+            Dwarf_Die child_die = NULL;
+            if (dwarf_child(type_die, &child_die, err) == DW_DLV_OK) {
+                Dwarf_Half child_tag;
+                if (dwarf_tag(child_die, &child_tag, err) == DW_DLV_OK) {
+                    if (child_tag == DW_TAG_subrange_type) {
+                        Dwarf_Attribute count_attr;
+                        if (dwarf_attr(child_die, DW_AT_count, &count_attr, err) == DW_DLV_OK) {
+                            Dwarf_Unsigned count;
+                            if (dwarf_formudata(count_attr, &count, err) == DW_DLV_OK) {
+                                array_count = static_cast<size_t>(count);
+                            }
+                            dwarf_dealloc_attribute(count_attr);
+                        }
+                        else if (dwarf_attr(child_die, DW_AT_upper_bound, &count_attr, err) == DW_DLV_OK) {
+                            Dwarf_Unsigned upper;
+                            if (dwarf_formudata(count_attr, &upper, err) == DW_DLV_OK) {
+                                array_count = static_cast<size_t>(upper + 1);
+                            }
+                            dwarf_dealloc_attribute(count_attr);
+                        }
+                    }
+                }
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+            }
+
+            if (element_size > 0 && array_count > 0) {
+                return element_size * array_count;
+            }
+        }
+    }
+
+    return 0;
+}
+
+// Forward declaration for recursive struct member extraction
+void extractStructMembers(Dwarf_Debug dbg, Dwarf_Die struct_die, std::vector<KernelArgument>& members, Dwarf_Error *err);
+
+// Helper function to extract struct members recursively
+void extractStructMembers(Dwarf_Debug dbg, Dwarf_Die struct_die, std::vector<KernelArgument>& members, Dwarf_Error *err) {
+    if (!struct_die) return;
+
+    // Get the first child (member)
+    Dwarf_Die member_die = NULL;
+    if (dwarf_child(struct_die, &member_die, err) != DW_DLV_OK) {
+        return;
+    }
+
+    do {
+        Dwarf_Half tag;
+        if (dwarf_tag(member_die, &tag, err) == DW_DLV_OK) {
+            if (tag == DW_TAG_member) {
+                // Extract member name
+                char *member_name = NULL;
+                std::string memberNameStr = "<anonymous>";
+                Dwarf_Attribute name_attr;
+                if (dwarf_attr(member_die, DW_AT_name, &name_attr, err) == DW_DLV_OK) {
+                    if (dwarf_formstring(name_attr, &member_name, err) == DW_DLV_OK && member_name) {
+                        memberNameStr = member_name;
+                    }
+                    dwarf_dealloc_attribute(name_attr);
+                }
+
+                // Extract member offset
+                size_t offset = 0;
+                Dwarf_Attribute offset_attr;
+                if (dwarf_attr(member_die, DW_AT_data_member_location, &offset_attr, err) == DW_DLV_OK) {
+                    Dwarf_Unsigned off;
+                    if (dwarf_formudata(offset_attr, &off, err) == DW_DLV_OK) {
+                        offset = static_cast<size_t>(off);
+                    }
+                    dwarf_dealloc_attribute(offset_attr);
+                }
+
+                // Extract member type
+                std::string memberType = "unknown";
+                size_t memberSize = 0;
+                std::vector<KernelArgument> nestedMembers;
+
+                Dwarf_Attribute type_attr;
+                if (dwarf_attr(member_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+                    Dwarf_Off type_offset;
+                    if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                        Dwarf_Die type_die;
+                        if (dwarf_offdie_b(dbg, type_offset, true, &type_die, err) == DW_DLV_OK) {
+                            memberType = resolveTypeName(dbg, type_die, err);
+                            memberSize = getTypeSize(dbg, type_die, err);
+
+                            // Check if this is a struct/class type - if so, recursively extract its members
+                            Dwarf_Half type_tag;
+                            if (dwarf_tag(type_die, &type_tag, err) == DW_DLV_OK) {
+                                if (type_tag == DW_TAG_structure_type || type_tag == DW_TAG_class_type) {
+                                    extractStructMembers(dbg, type_die, nestedMembers, err);
+                                }
+                            }
+
+                            dwarf_dealloc(dbg, type_die, DW_DLA_DIE);
+                        }
+                    }
+                    dwarf_dealloc_attribute(type_attr);
+                }
+
+                // Create and add the member using KernelArgument
+                // For nested members: offset is meaningful, position/alignment are 0
+                KernelArgument member(memberNameStr, memberType, memberSize, offset, 0, 0);
+                member.members = nestedMembers;
+                members.push_back(member);
+            }
+        }
+
+        // Move to next sibling (next member)
+        Dwarf_Die member_sibling = NULL;
+        if (dwarf_siblingof_b(dbg, member_die, true, &member_sibling, err) != DW_DLV_OK) {
+            break;
+        }
+        dwarf_dealloc(dbg, member_die, DW_DLA_DIE);
+        member_die = member_sibling;
+    } while (member_die != NULL);
+
+    if (member_die) {
+        dwarf_dealloc(dbg, member_die, DW_DLA_DIE);
+    }
+}
+
+bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_length,
+                            std::map<std::string, std::vector<KernelArgument>>& kernelArgsMap) {
+
+    std::string inFileName = filename;
+
+    if (offset != 0) {
+        inFileName = create_temp_file_segment(inFileName, offset, hsaco_length);
+    }
+
+    // Open the file
+    int fd = open(inFileName.c_str(), O_RDONLY);
+    if (fd < 0) {
+        if (offset != 0) {
+            unlink(inFileName.c_str());
+        }
+        throw std::runtime_error("Failed to open file for DWARF extraction");
+    }
+
+    // Initialize DWARF
+    Dwarf_Debug dbg;
+    Dwarf_Error err;
+    int status = 0;
+
+    #if defined(UBUNTU_LIBDWARF)
+    status = dwarf_init_b(fd, DW_DLC_READ, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
+    #else
+    status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
+    #endif
+
+    if (status == DW_DLV_ERROR) {
+        close(fd);
+        if (offset != 0) {
+            unlink(inFileName.c_str());
+        }
+        throw std::runtime_error(std::string("DWARF init failed: ") + dwarf_errmsg(err));
+    } else if (status == DW_DLV_NO_ENTRY) {
+        close(fd);
+        if (offset != 0) {
+            unlink(inFileName.c_str());
+        }
+        return false;
+    }
+
+    // Iterate through all compilation units
+    Dwarf_Unsigned cu_header_length;
+    Dwarf_Half version_stamp;
+    Dwarf_Unsigned abbrev_offset;
+    Dwarf_Half address_size, length_size, extension_size, offset_size, header_cu_type;
+    Dwarf_Sig8 type_sig;
+    Dwarf_Unsigned next_cu_header, type_offset;
+
+    while (dwarf_next_cu_header_d(dbg, true, &cu_header_length, &version_stamp, &abbrev_offset,
+                                &address_size, &length_size, &extension_size, &type_sig, &type_offset,
+                                &next_cu_header, &header_cu_type, &err) == DW_DLV_OK) {
+
+        Dwarf_Die cu_die = 0;
+        if (dwarf_siblingof_b(dbg, NULL, true, &cu_die, &err) != DW_DLV_OK) {
+            continue;
+        }
+
+        // Traverse all DIEs in this CU to find subprograms (kernels)
+        Dwarf_Die child_die = NULL;
+        int result = dwarf_child(cu_die, &child_die, &err);
+
+        if (result == DW_DLV_OK) {
+            do {
+                Dwarf_Half tag;
+                if (dwarf_tag(child_die, &tag, &err) == DW_DLV_OK) {
+                    if (tag == DW_TAG_subprogram) {
+                        // Found a subprogram (kernel function)
+                        char *kernel_name = NULL;
+                        Dwarf_Attribute name_attr;
+
+                        // Try DW_AT_linkage_name first (contains mangled name for templates/C++)
+                        bool found_name = false;
+                        if (dwarf_attr(child_die, DW_AT_linkage_name, &name_attr, &err) == DW_DLV_OK) {
+                            if (dwarf_formstring(name_attr, &kernel_name, &err) == DW_DLV_OK && kernel_name) {
+                                found_name = true;
+                            }
+                            dwarf_dealloc_attribute(name_attr);
+                        }
+
+                        // Fall back to DW_AT_MIPS_linkage_name (older DWARF versions)
+                        if (!found_name && dwarf_attr(child_die, DW_AT_MIPS_linkage_name, &name_attr, &err) == DW_DLV_OK) {
+                            if (dwarf_formstring(name_attr, &kernel_name, &err) == DW_DLV_OK && kernel_name) {
+                                found_name = true;
+                            }
+                            dwarf_dealloc_attribute(name_attr);
+                        }
+
+                        // Fall back to DW_AT_name if no linkage name
+                        if (!found_name && dwarf_attr(child_die, DW_AT_name, &name_attr, &err) == DW_DLV_OK) {
+                            if (dwarf_formstring(name_attr, &kernel_name, &err) == DW_DLV_OK && kernel_name) {
+                                found_name = true;
+                            }
+                            dwarf_dealloc_attribute(name_attr);
+                        }
+
+                        if (found_name && kernel_name) {
+                                std::string kernelNameStr(kernel_name);
+                                std::vector<KernelArgument> args;
+
+                                // Now find formal parameters (arguments) of this kernel
+                                Dwarf_Die param_die = NULL;
+                                int param_result = dwarf_child(child_die, &param_die, &err);
+                                uint32_t arg_position = 0;
+
+                                if (param_result == DW_DLV_OK) {
+                                    do {
+                                        Dwarf_Half param_tag;
+                                        if (dwarf_tag(param_die, &param_tag, &err) == DW_DLV_OK) {
+                                            if (param_tag == DW_TAG_formal_parameter) {
+                                                // Extract parameter information
+                                                char *param_name = NULL;
+                                                Dwarf_Attribute param_name_attr;
+
+                                                std::string paramNameStr = "";
+                                                if (dwarf_attr(param_die, DW_AT_name, &param_name_attr, &err) == DW_DLV_OK) {
+                                                    if (dwarf_formstring(param_name_attr, &param_name, &err) == DW_DLV_OK && param_name) {
+                                                        paramNameStr = param_name;
+                                                    }
+                                                    dwarf_dealloc_attribute(param_name_attr);
+                                                }
+
+                                                // Get type information
+                                                std::string typeStr = "unknown";
+                                                size_t typeSize = 0;
+                                                size_t alignment = 0;
+
+                                                Dwarf_Attribute type_attr;
+                                                if (dwarf_attr(param_die, DW_AT_type, &type_attr, &err) == DW_DLV_OK) {
+                                                    Dwarf_Off type_offset;
+                                                    if (dwarf_global_formref(type_attr, &type_offset, &err) == DW_DLV_OK) {
+                                                        Dwarf_Die type_die;
+                                                        if (dwarf_offdie_b(dbg, type_offset, true, &type_die, &err) == DW_DLV_OK) {
+                                                            typeStr = resolveTypeName(dbg, type_die, &err);
+                                                            typeSize = getTypeSize(dbg, type_die, &err);
+                                                            alignment = getTypeAlignment(dbg, type_die, &err);
+
+                                                            // Create kernel argument (offset is 0 for top-level args)
+                                                            KernelArgument arg(paramNameStr, typeStr, typeSize, 0, alignment, arg_position);
+
+                                                            // If this is a struct/class type, extract its members
+                                                            // If it's a pointer to a struct, dereference it first
+                                                            Dwarf_Half type_tag;
+                                                            if (dwarf_tag(type_die, &type_tag, &err) == DW_DLV_OK) {
+                                                                if (type_tag == DW_TAG_structure_type || type_tag == DW_TAG_class_type) {
+                                                                    // Direct struct - extract members
+                                                                    extractStructMembers(dbg, type_die, arg.members, &err);
+                                                                } else if (type_tag == DW_TAG_pointer_type) {
+                                                                    // Pointer type - check if it points to a struct
+                                                                    Dwarf_Attribute ptr_type_attr;
+                                                                    if (dwarf_attr(type_die, DW_AT_type, &ptr_type_attr, &err) == DW_DLV_OK) {
+                                                                        Dwarf_Off ptr_type_offset;
+                                                                        if (dwarf_global_formref(ptr_type_attr, &ptr_type_offset, &err) == DW_DLV_OK) {
+                                                                            Dwarf_Die ptr_type_die;
+                                                                            if (dwarf_offdie_b(dbg, ptr_type_offset, true, &ptr_type_die, &err) == DW_DLV_OK) {
+                                                                                Dwarf_Half ptr_type_tag;
+                                                                                if (dwarf_tag(ptr_type_die, &ptr_type_tag, &err) == DW_DLV_OK) {
+                                                                                    if (ptr_type_tag == DW_TAG_structure_type || ptr_type_tag == DW_TAG_class_type) {
+                                                                                        // Pointer to struct - extract the struct members
+                                                                                        extractStructMembers(dbg, ptr_type_die, arg.members, &err);
+                                                                                    }
+                                                                                }
+                                                                                dwarf_dealloc(dbg, ptr_type_die, DW_DLA_DIE);
+                                                                            }
+                                                                        }
+                                                                        dwarf_dealloc_attribute(ptr_type_attr);
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            args.push_back(arg);
+
+                                                            dwarf_dealloc(dbg, type_die, DW_DLA_DIE);
+                                                        }
+                                                    }
+                                                    dwarf_dealloc_attribute(type_attr);
+                                                }
+
+                                                arg_position++;
+                                            }
+                                        }
+
+                                        // Move to next sibling (next parameter)
+                                        Dwarf_Die param_sibling = NULL;
+                                        if (dwarf_siblingof_b(dbg, param_die, true, &param_sibling, &err) != DW_DLV_OK) {
+                                            break;
+                                        }
+                                        dwarf_dealloc(dbg, param_die, DW_DLA_DIE);
+                                        param_die = param_sibling;
+                                    } while (param_die != NULL);
+
+                                    if (param_die) {
+                                        dwarf_dealloc(dbg, param_die, DW_DLA_DIE);
+                                    }
+                                }
+
+                                // Store kernel arguments
+                                kernelArgsMap[kernelNameStr] = args;
+                        }
+                    }
+                }
+
+                // Move to next sibling
+                Dwarf_Die sibling_die = NULL;
+                if (dwarf_siblingof_b(dbg, child_die, true, &sibling_die, &err) != DW_DLV_OK) {
+                    break;
+                }
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+                child_die = sibling_die;
+            } while (child_die != NULL);
+
+            if (child_die) {
+                dwarf_dealloc(dbg, child_die, DW_DLA_DIE);
+            }
+        }
+
+        dwarf_dealloc(dbg, cu_die, DW_DLA_DIE);
+    }
+
+    // Cleanup
+    #if defined(UBUNTU_LIBDWARF)
+    dwarf_finish(dbg, &err);
+    #else
+    dwarf_finish(dbg);
+    #endif
+    close(fd);
+
+    if (offset != 0) {
+        unlink(inFileName.c_str());
+    }
+
+    return !kernelArgsMap.empty();
 }
 

@@ -2,15 +2,15 @@
 This library exposes a C++ class which can be used for querying data within CDNA kernel implementations. kernelDB is initially
 implemented to support memory access efficiency analysis as part of the feature-set of omniprobe, from AMD research.
 
-Omniprobe provides intra-kernel observation by injecting code at compile time which causes the instrumented kernel to emit "messages" 
+Omniprobe provides intra-kernel observation by injecting code at compile time which causes the instrumented kernel to emit "messages"
 to host code. The instrumented code relies on a buffered I/O capability provided by the dh_comms library implemented as an adjacent project
-to Omniprobe. 
+to Omniprobe.
 
 Memory access inefficiencies are a common source of performance bottlenecks in GPU kernels. Omniprobe can inject instrumentation which
 will cause the kernel to emit memory traces which can be analyzed for such memory access inefficiencies. But Omniprobe instrumentation occurs at the IR
 level in LLVM, and many optimizations may occur downstream from where the Omniprobe instrumentation occurs. This implicates how performance
 analysis is done. For example, code optimizations for loads routinely gang together individual loads into dwordx4 sized loads. Such optimizations
-implicate trace analysis semantics. So understanding how the loads/stores were optimized is a critical aspect of interpreting the memory traces being 
+implicate trace analysis semantics. So understanding how the loads/stores were optimized is a critical aspect of interpreting the memory traces being
 emitted by the instrumented kernel.
 
 Omniprobe messages include a source line number which can be used to identify precisely where various instrumented phenomena are occuring
@@ -27,10 +27,10 @@ load. If the file name is "", kernelDB will look inside the running process and 
 it finds there. kernelDB can handle both fat binaries as well as stand alone code objects (e.g. hsaco files)
 
 Once a kernelDB instance has been created, data regarding all load/store instructions can be queried by providing the kernel name of interest, and the line number
-you're interested in. 
+you're interested in.
 
-Under the test directory there is a small test program (kdbtest) that exercises the API and can serve as an example of one way to use the api. 
-```
+Under the test directory there is a small test program (kdbtest) that exercises the API and can serve as an example of one way to use the api.
+```c++
 #include <iostream>
 #include <string>
 #include "inc/kernelDB.h"
@@ -73,6 +73,9 @@ int main(int argc, char **argv)
 }
 ```
 ## Building
+
+### Building C++ Library Only
+
 kernelDB has a dependency on an llvm environment in order to build. For now, the best one to use is the rocm-llvm-dev package. It may not be installed by default so you may need to install it.
 Alternatively, you can use the Triton llvm that can typically be found somewhere under here: ~/.triton/llvm. To point the build at a specific llvm install, do the following:
 ```
@@ -81,3 +84,61 @@ cmake -DCMAKE_BUILD_TYPE=[Release|Debug] -DCMAKE_INSTALL_PREFIX=~/.local ..
 make && make install
 ```
 The above commands will build libkernelDB64.so and copy it to ${CMAKE_INSTALL_PREFIX}/lib while copying the kerneldb include files to ${CMAKE_INSTALL_PREFIX}/include. If you omit the definition of CMAKE_INSTALL_PREFIX, it defaults to /usr/local.
+
+### Installing with Python API
+
+You can install kernelDB with Python bindings directly from git:
+
+```bash
+pip install git+https://github.com/AMDResearch/kerneldb.git
+```
+
+Or install from a local clone:
+
+```bash
+git clone https://github.com/AMDResearch/kerneldb.git
+cd kerneldb
+pip install .
+```
+
+For development with editable install:
+
+```bash
+pip install -e .
+```
+
+This will:
+1. Build the C++ library using CMake
+2. Install the Python package with bindings
+3. Make both C++ and Python APIs available
+
+## Python API
+
+kernelDB now includes Python bindings for easier integration with Python-based tools and workflows.
+
+### Quick Example
+
+```python
+from kerneldb import KernelDB
+
+# Analyze a HIP binary or HSACO file
+kdb = KernelDB("my_kernel.hsaco")
+
+# Get all kernels
+for kernel_name in kdb.get_kernels():
+    kernel = kdb.get_kernel(kernel_name)
+
+    # Get source lines with instructions
+    lines = kdb.get_kernel_lines(kernel_name)
+
+    # Get instructions for a specific line
+    for line in lines:
+        instructions = kdb.get_instructions_for_line(kernel_name, line)
+        for inst in instructions:
+            print(f"[{inst.line}:{inst.column}] {inst.disassembly}")
+
+    # Filter for load/store operations
+    mem_ops = kdb.get_instructions_for_line(kernel_name, line, ".*(load|store).*")
+```
+
+See the `examples/` directory for complete examples.

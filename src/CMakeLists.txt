@@ -73,6 +73,7 @@ target_link_libraries(
     z
     zstd
     dwarf
+    elf
 )
 # Install the kernelDB library and public headers
 file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
@@ -94,3 +95,54 @@ endif()
 
 message(STATUS "==> {Library,include} install dirs: ${CMAKE_INSTALL_PREFIX}/{${CMAKE_INSTALL_LIBDIR},${CMAKE_INSTALL_INCLUDEDIR}/kerneldb}")
 message(STATUS "==> To change install dirs, rerun cmake with argument \"-DCMAKE_INSTALL_PREFIX=/path/to/install/dir\"")
+
+# Build Python bindings if requested
+option(BUILD_PYTHON_BINDINGS "Build Python bindings with pybind11" OFF)
+if(BUILD_PYTHON_BINDINGS)
+    # Find Python - make development optional
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    find_package(Python3 COMPONENTS Development.Module QUIET)
+
+    # Try to find pybind11
+    find_package(pybind11 CONFIG QUIET)
+
+    if(pybind11_FOUND AND Python3_Development.Module_FOUND)
+        message(STATUS "Found pybind11: ${pybind11_DIR}")
+        message(STATUS "Found Python3 Development: ${Python3_VERSION}")
+
+        # Create pybind11 module
+        pybind11_add_module(_kerneldb ${LIB_DIR}/pybind11_wrapper.cc)
+
+        # Link against kernelDB library
+        target_link_libraries(_kerneldb PRIVATE ${TARGET_LIB})
+
+        # Set RPATH so the module can find the C++ library in the same directory
+        # Use CMAKE_LIBRARY_OUTPUT_DIRECTORY if set, otherwise use current binary dir
+        if(CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+            set(_output_dir ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+        else()
+            set(_output_dir ${CMAKE_CURRENT_BINARY_DIR})
+        endif()
+
+        set_target_properties(_kerneldb PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY ${_output_dir}
+            INSTALL_RPATH "$ORIGIN"
+            BUILD_WITH_INSTALL_RPATH TRUE
+        )
+
+        # Install the module
+        install(TARGETS _kerneldb
+            LIBRARY DESTINATION kerneldb)
+
+        message(STATUS "Python bindings will be built")
+    else()
+        if(NOT pybind11_FOUND)
+            message(WARNING "pybind11 not found. Python bindings will not be built.")
+            message(WARNING "Install with: pip install pybind11")
+        endif()
+        if(NOT Python3_Development.Module_FOUND)
+            message(WARNING "Python development headers not found. Python bindings will not be built.")
+            message(WARNING "Install with: dnf install python3-devel (RHEL) or apt install python3-dev (Ubuntu)")
+        endif()
+    endif()
+endif()

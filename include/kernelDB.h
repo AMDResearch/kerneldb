@@ -95,18 +95,34 @@ struct SourceLocation {
         : fileName(file), lineNumber(line), columnNumber(col) {}
 };
 
+// Structure to hold kernel argument info (recursive for struct members)
+struct KernelArgument {
+    std::string name;
+    std::string type_name;
+    size_t size;          // Size in bytes
+    size_t offset;        // Offset within parent struct (0 for top-level args)
+    size_t alignment;     // Alignment requirement (relevant for top-level args)
+    uint32_t position;    // Argument position, 0-based (0 for nested members)
+    std::vector<KernelArgument> members;  // For struct types, contains member breakdown (recursive)
+
+    KernelArgument(const std::string& n = "", const std::string& t = "",
+                   size_t sz = 0, size_t off = 0, size_t align = 0, uint32_t pos = 0)
+        : name(n), type_name(t), size(sz), offset(off), alignment(align), position(pos) {}
+};
+
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap);
 SourceLocation getSourceLocation(std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
 __attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out);
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
 __attribute__((visibility("default"))) std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName);
+bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_length, std::map<std::string, std::vector<KernelArgument>>& kernelArgsMap);
 
 
 namespace kernelDB {
 
 class basicBlock;
-    
+
 std::string getKernelName(const std::string& name);
 
 typedef struct instruction_s{
@@ -134,7 +150,7 @@ enum parse_mode {
 
 
 class __attribute__((visibility("default"))) basicBlock {
-public: 
+public:
     basicBlock();
     ~basicBlock() = default;
     void addInstruction(const instruction_t& instruction);
@@ -169,6 +185,9 @@ public:
     void getSourceCode(std::vector<std::string>& outputLines);
     std::string getDisassembly() {return disassembly_;}
     void printBlock(std::ostream& out, basicBlock *block, const std::string& label);
+    void setArguments(const std::vector<KernelArgument>& args);
+    const std::vector<KernelArgument>& getArguments() const;
+    bool hasArguments() const;
 private:
     std::string name_;
     std::string disassembly_;
@@ -179,6 +198,7 @@ private:
     std::vector<std::string> file_names_;
     std::shared_mutex mutex_;
     std::map<std::string, std::vector<std::string>> source_cache_;
+    std::vector<KernelArgument> arguments_;
 };
 
 class __attribute__((visibility("default"))) kernelDB {
@@ -201,8 +221,10 @@ public:
     void getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
+    std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name);
 private:
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
+    void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath);
     parse_mode getLineType(std::string& line);
     std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);
@@ -253,7 +275,7 @@ static inline size_t split(std::string const& s,
                 // append the current field to the given container
                 container.push_back(std::string(first, it));
                 ++n;
-                
+
                 // skip the delimiter
                 first = it + 1;
             }
