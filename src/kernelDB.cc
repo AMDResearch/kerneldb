@@ -750,13 +750,13 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
         if (info.size)
         {
             buildLineMap(section_offset + info.offset, info.size, elfFilePath);
-            extractArgumentsFromDwarf(agent, elfFilePath);
+            extractArgumentsFromDwarf(agent, elfFilePath, false);
         }
     }
     else
     {
         buildLineMap(0, 0, file_map_[strFile].c_str());
-        extractArgumentsFromDwarf(agent, elfFilePath);
+        extractArgumentsFromDwarf(agent, elfFilePath, false);
     }
 }
 
@@ -817,8 +817,13 @@ void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& 
     }
 }
 
-std::vector<KernelArgument> kernelDB::getKernelArguments(const std::string& kernel_name)
+std::vector<KernelArgument> kernelDB::getKernelArguments(const std::string& kernel_name, bool resolve_typedefs)
 {
+    // If we need to resolve typedefs and haven't done so yet, re-extract with resolution
+    if (resolve_typedefs) {
+        extractArgumentsFromDwarf(agent_, fileName_.c_str(), true);
+    }
+
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(kernel_name));
     if (it != kernels_.end())
@@ -829,7 +834,7 @@ std::vector<KernelArgument> kernelDB::getKernelArguments(const std::string& kern
         throw std::runtime_error("Unable to find kernel " + kernel_name);
 }
 
-void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath)
+void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs)
 {
     std::string strFile(elfFilePath);
     std::map<std::string, std::vector<KernelArgument>> kernelArgsMap;
@@ -845,12 +850,12 @@ void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFileP
             amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
             if (info.size)
             {
-                extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap);
+                extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap, resolve_typedefs);
             }
         }
         else
         {
-            extractKernelArguments(file_map_[strFile].c_str(), 0, 0, kernelArgsMap);
+            extractKernelArguments(file_map_[strFile].c_str(), 0, 0, kernelArgsMap, resolve_typedefs);
         }
 
         // Store the arguments in the kernel objects

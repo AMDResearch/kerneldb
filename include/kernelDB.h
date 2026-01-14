@@ -116,7 +116,7 @@ __attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, co
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
 __attribute__((visibility("default"))) std::string extractCodeObject(hsa_agent_t agent, const std::string& fileName);
-bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_length, std::map<std::string, std::vector<KernelArgument>>& kernelArgsMap);
+bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_length, std::map<std::string, std::vector<KernelArgument>>& kernelArgsMap, bool resolve_typedefs = false);
 
 
 namespace kernelDB {
@@ -221,10 +221,10 @@ public:
     void getBlockMarkers(const std::string& disassembly, std::map<std::string, std::set<uint64_t>>& markers);
     static amd_comgr_code_object_info_t getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
-    std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name);
+    std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name, bool resolve_typedefs = false);
 private:
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
-    void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath);
+    void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs);
     parse_mode getLineType(std::string& line);
     std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);
