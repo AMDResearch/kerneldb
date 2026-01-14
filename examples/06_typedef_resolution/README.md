@@ -17,26 +17,31 @@ Typedef Resolution Example
 
 [2/3] Analyzing with resolve_typedefs=False (default)...
      (Shows typedef/using names as written in source code)
+Adding /tmp/tmps8cjvbp_
+Found 1 kernels
+Marker Count: 1 Kernel Count: 1
 
 Kernel: typedef_kernel(int, float, int, int*, double, __hip_bfloat16, unsigned int)
 
   Arguments (7):
-    a: MyInt (size=0, align=0)
-    b: MyFloat (size=0, align=0)
-    c: Level4 (size=0, align=0)
-    d: IntPtr (size=0, align=0)
-    e: MyTypedefDouble (size=0, align=0)
-    g: bfloat16 (size=0, align=0)
+    a: MyInt (size=4, align=4)
+    b: MyFloat (size=4, align=4)
+    c: Level4 (size=4, align=4)
+    d: IntPtr (size=8, align=8)
+    e: MyTypedefDouble (size=8, align=8)
+    g: bfloat16 (size=2, align=2)
     f: unsigned int (size=4, align=4)
 
 [3/3] Analyzing with resolve_typedefs=True...
 
   Arguments (7):
-    a: int (size=0, align=0)
-    b: float (size=0, align=0)
-    c: int (size=0, align=0)
-    d: int* (size=0, align=0)
-    e: double (size=0, align=0)
-    g: struct __hip_bfloat16 (size=0, align=0)
+    a: int (size=4, align=4)
+    b: float (size=4, align=4)
+    c: int (size=4, align=4)
+    d: int* (size=8, align=8)
+    e: double (size=8, align=8)
+    g: struct __hip_bfloat16 (size=2, align=2)
     f: unsigned int (size=4, align=4)
+Ending kernelDB
+Found 1 kernels.
 ```

@@ -614,6 +614,17 @@ size_t getTypeAlignment(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
         return 0;
     }
 
+    // Check if this is a typedef - if so, follow it to get the underlying type's alignment
+    Dwarf_Half tag;
+    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK && tag == DW_TAG_typedef) {
+        Dwarf_Die underlying_die = resolveTypedefOneLevel(dbg, type_die, err);
+        if (underlying_die) {
+            size_t alignment = getTypeAlignment(dbg, underlying_die, err);
+            dwarf_dealloc(dbg, underlying_die, DW_DLA_DIE);
+            return alignment;
+        }
+    }
+
     // First try to get explicit alignment attribute
     // Compilers emit this when using `alignas()`
     Dwarf_Attribute align_attr;
@@ -627,7 +638,6 @@ size_t getTypeAlignment(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
     }
 
     // If no explicit alignment, calculate based on type
-    Dwarf_Half tag;
     if (dwarf_tag(type_die, &tag, err) != DW_DLV_OK) {
         return 0;
     }
@@ -700,6 +710,17 @@ size_t getTypeSize(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
         return 0;
     }
 
+    // Check if this is a typedef - if so, follow it to get the underlying type's size
+    Dwarf_Half tag;
+    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK && tag == DW_TAG_typedef) {
+        Dwarf_Die underlying_die = resolveTypedefOneLevel(dbg, type_die, err);
+        if (underlying_die) {
+            size_t size = getTypeSize(dbg, underlying_die, err);
+            dwarf_dealloc(dbg, underlying_die, DW_DLA_DIE);
+            return size;
+        }
+    }
+
     Dwarf_Attribute size_attr;
     if (dwarf_attr(type_die, DW_AT_byte_size, &size_attr, err) == DW_DLV_OK) {
         Dwarf_Unsigned size;
@@ -711,7 +732,6 @@ size_t getTypeSize(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
     }
 
     // For pointer types, return pointer size (typically 8 bytes on 64-bit systems)
-    Dwarf_Half tag;
     if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK) {
         if (tag == DW_TAG_pointer_type) {
             return 8;  // Assume 64-bit pointers for GPU code
