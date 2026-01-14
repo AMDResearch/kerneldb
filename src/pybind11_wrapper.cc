@@ -160,7 +160,7 @@ PYBIND11_MODULE(_kerneldb, m) {
              py::arg("kernel"), py::arg("index"))
         .def("get_kernel_arguments", &kernelDB::kernelDB::getKernelArguments,
              "Get kernel arguments",
-             py::arg("kernel_name"))
+             py::arg("kernel_name"), py::arg("resolve_typedefs") = false)
         .def("__repr__", [](const kernelDB::kernelDB &db) {
             return "<KernelDB instance>";
         });

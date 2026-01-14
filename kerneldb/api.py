@@ -134,12 +134,14 @@ class KernelDB:
         """
         return self._kdb.get_file_name(kernel_name, index)
 
-    def get_kernel_arguments(self, kernel_name: str) -> List[KernelArgument]:
+    def get_kernel_arguments(self, kernel_name: str, resolve_typedefs: bool = False) -> List[KernelArgument]:
         """
         Get kernel arguments (parameters) from DWARF debug information
 
         Args:
             kernel_name: Name of the kernel
+            resolve_typedefs: If True, resolves typedef/using aliases to underlying types.
+                            If False (default), returns the typedef name as written in source.
 
         Returns:
             List of KernelArgument objects containing name, type, size, alignment, and position
@@ -147,7 +149,7 @@ class KernelDB:
         Raises:
             RuntimeError: If kernel not found or argument information unavailable
         """
-        return self._kdb.get_kernel_arguments(kernel_name)
+        return self._kdb.get_kernel_arguments(kernel_name, resolve_typedefs)
 
 
 class Kernel:
