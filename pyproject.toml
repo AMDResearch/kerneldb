@@ -12,7 +12,7 @@ description = "C++ library for querying data within CDNA kernel implementations,
 authors = [
     { name = "Keith Lowery", email = "Keith.Lowery@amd.com" },
 ]
-license = {text = "MIT"}
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = []
