@@ -975,20 +975,27 @@ void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFileP
     try
     {
         // Try DWARF first (for HIP kernels with -g)
-        if (!strFile.ends_with(".hsaco") && file_map_[strFile] == strFile)
+        if (!strFile.ends_with(".hsaco") && (file_map_[strFile].size() == 1 && file_map_[strFile][0] == strFile))
         {
             size_t section_offset = 0;
             std::vector<uint8_t> bits;
             getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
-            amd_comgr_code_object_info_t info = getCodeObjectInfo(agent, bits);
-            if (info.size)
+            std::vector<amd_comgr_code_object_info_t> code_objects = getCodeObjectInfo(agent, bits);
+            for (const auto& info : code_objects)
             {
-                extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap, resolve_typedefs);
+                if (info.size)
+                {
+                    extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap, resolve_typedefs);
+                }
             }
         }
         else
         {
-            extractKernelArguments(file_map_[strFile].c_str(), 0, 0, kernelArgsMap, resolve_typedefs);
+            // file_map_[strFile] is a vector, iterate over all temp files
+            for (const auto& hsaco_file : file_map_[strFile])
+            {
+                extractKernelArguments(hsaco_file.c_str(), 0, 0, kernelArgsMap, resolve_typedefs);
+            }
         }
 
         // Store the arguments in the kernel objects
