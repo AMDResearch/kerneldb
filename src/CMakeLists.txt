@@ -33,14 +33,6 @@ set ( LIB_SRC
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
-# Default ROCm path can be infered
-if(DEFINED ENV{ROCM_PATH})
-  set(ROCM_PATH $ENV{ROCM_PATH})
-else()
-  set(ROCM_PATH "/opt/rocm")
-endif()
-message("ROCM_PATH: ${ROCM_PATH}")
-
 link_directories(${ROCM_ROOT_DIR}/lib $ENV{HOME}/.local/lib64)
 add_library ( ${TARGET_LIB} SHARED ${LIB_SRC})
 

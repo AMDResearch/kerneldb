@@ -803,7 +803,7 @@ void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLoc
                     instruction.path_id_ = inst.path_id_ = it->second.get()->addFileName(source.fileName);
                     it->second.get()->addLine(source.lineNumber, inst);
                 }
-                catch(std::runtime_error e)
+                catch(const std::runtime_error& e)
                 {
                     instruction_t inst = instruction;
                     instruction.line_ = inst.line_ = MISSING_SOURCE_INFO;
