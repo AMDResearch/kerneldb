@@ -279,10 +279,15 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     Dwarf_Error err;
     int status = 0;
 
-    // Define a macro to handle the different signatures of dwarf_init_b
-    #if defined(UBUNTU_LIBDWARF) // Define this macro for Ubuntu builds
+    // Handle different libdwarf API versions
+    #if defined(LIBDWARF_V2)
+    // libdwarf 2.x API: no DW_DLC_READ, init takes fewer args
+    status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, nullptr, nullptr, &dbg, &err);
+    #elif defined(UBUNTU_LIBDWARF)
+    // libdwarf 0.x/1.x old Ubuntu API: includes DW_DLC_READ
     status = dwarf_init_b(fd, DW_DLC_READ, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
-    #else // Default to RHEL9 or other versions
+    #else
+    // libdwarf 0.x/1.x RHEL9 API: no DW_DLC_READ but still takes all args
     status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
     #endif
     if (status == DW_DLV_ERROR){
@@ -383,10 +388,14 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
     }
 
     // Final cleanup
-    // Define a macro to handle the different signatures of dwarf_finish
-    #if defined(UBUNTU_LIBDWARF) // Define this macro for Ubuntu builds
+    // Handle different libdwarf API versions for cleanup
+    #if defined(LIBDWARF_V2)
+    // libdwarf 2.x: dwarf_finish takes only 1 argument
+    dwarf_finish(dbg);
+    #elif defined(UBUNTU_LIBDWARF)
+    // libdwarf 0.x/1.x: dwarf_finish takes 2 arguments
     dwarf_finish(dbg, &err);
-    #else // Default to RHEL9 or other versions
+    #else
     dwarf_finish(dbg);
     #endif
     close(fd);
@@ -903,9 +912,14 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
     Dwarf_Error err;
     int status = 0;
 
-    #if defined(UBUNTU_LIBDWARF)
+    #if defined(LIBDWARF_V2)
+    // libdwarf 2.x API: no DW_DLC_READ, init takes fewer args
+    status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, nullptr, nullptr, &dbg, &err);
+    #elif defined(UBUNTU_LIBDWARF)
+    // libdwarf 0.x/1.x old Ubuntu API: includes DW_DLC_READ
     status = dwarf_init_b(fd, DW_DLC_READ, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
     #else
+    // libdwarf 0.x/1.x RHEL9 API: no DW_DLC_READ but still takes all args
     status = dwarf_init_b(fd, DW_GROUPNUMBER_ANY, NULL, NULL, &dbg, &err);
     #endif
 
@@ -1102,7 +1116,11 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
     }
 
     // Cleanup
-    #if defined(UBUNTU_LIBDWARF)
+    #if defined(LIBDWARF_V2)
+    // libdwarf 2.x: dwarf_finish takes only 1 argument
+    dwarf_finish(dbg);
+    #elif defined(UBUNTU_LIBDWARF)
+    // libdwarf 0.x/1.x: dwarf_finish takes 2 arguments
     dwarf_finish(dbg, &err);
     #else
     dwarf_finish(dbg);

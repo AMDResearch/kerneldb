@@ -145,24 +145,53 @@ else()
   include_directories(${LIBDWARF_INCLUDE_DIR})
 endif()
 
-# Check the Linux distribution by examining /etc/os-release
-# Certain macros are defined for Ubuntu
-if(EXISTS "/etc/os-release")
-    file(READ "/etc/os-release" OS_RELEASE_CONTENT)
-    string(FIND "${OS_RELEASE_CONTENT}" "ID=ubuntu" FOUND_UBUNTU)
-    if(NOT FOUND_UBUNTU EQUAL -1)
-        message(STATUS "Detected Ubuntu Linux distribution")
-        add_definitions(-DUBUNTU_LIBDWARF)
-    else()
-        message(STATUS "Detected non-Ubuntu Linux distribution (e.g., RHEL9 or other)")
-    endif()
+# Detect libdwarf version by checking the API
+# libdwarf 2.x changed the API significantly:
+# - dwarf_init_b() no longer takes DW_DLC_READ parameter
+# - dwarf_finish() takes only 1 argument instead of 2
+# - dwarf_init_path() is new in 2.x
+message(STATUS "Detecting libdwarf API version...")
+
+# Check if dwarf_init_path exists (only in v2.x)
+file(READ "${LIBDWARF_INCLUDE_DIR}/libdwarf.h" LIBDWARF_HEADER_CONTENT)
+string(FIND "${LIBDWARF_HEADER_CONTENT}" "dwarf_init_path" HAS_INIT_PATH)
+
+if(NOT HAS_INIT_PATH EQUAL -1)
+    message(STATUS "Detected libdwarf 2.x (new API)")
+    add_definitions(-DLIBDWARF_V2)
 else()
-    message(WARNING "/etc/os-release not found. Unable to determine Linux distribution.")
+    message(STATUS "Detected libdwarf 0.x/1.x (old API)")
+    # For older libdwarf versions, we need to distinguish between variants:
+    # - Ubuntu has DW_DLC_READ parameter
+    # - RHEL9 and others do not
+    # Use OS detection to determine the variant
+    if(EXISTS "/etc/os-release")
+        file(READ "/etc/os-release" OS_RELEASE_CONTENT)
+        string(FIND "${OS_RELEASE_CONTENT}" "ID=ubuntu" FOUND_UBUNTU)
+        if(NOT FOUND_UBUNTU EQUAL -1)
+            message(STATUS "Detected Ubuntu with old libdwarf API (requires DW_DLC_READ)")
+            add_definitions(-DUBUNTU_LIBDWARF)
+        else()
+            message(STATUS "Detected non-Ubuntu Linux with old libdwarf API (no DW_DLC_READ)")
+        endif()
+    else()
+        message(WARNING "/etc/os-release not found. Assuming non-Ubuntu old libdwarf API.")
+    endif()
 endif()
 
-# Fallback option to allow the user to manually specify libdwarf version
-option(USE_UBUNTU_LIBDWARF "Use Ubuntu-specific libdwarf version" OFF)
-if(USE_UBUNTU_LIBDWARF)
+# Fallback option to allow the user to manually override detection
+option(FORCE_LIBDWARF_V2 "Force use of libdwarf 2.x API" OFF)
+option(FORCE_UBUNTU_LIBDWARF "Force use of Ubuntu-specific libdwarf 0.x API" OFF)
+
+if(FORCE_LIBDWARF_V2)
+    message(STATUS "Forcing libdwarf 2.x API (user override)")
+    remove_definitions(-DUBUNTU_LIBDWARF)
+    add_definitions(-DLIBDWARF_V2)
+endif()
+
+if(FORCE_UBUNTU_LIBDWARF)
+    message(STATUS "Forcing Ubuntu libdwarf 0.x API (user override)")
+    remove_definitions(-DLIBDWARF_V2)
     add_definitions(-DUBUNTU_LIBDWARF)
 endif()
 
