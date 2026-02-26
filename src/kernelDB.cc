@@ -720,17 +720,37 @@ std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t
             // std::cout << "  Status: " << (search_offset + bundle_end <= bits.size() ? "Valid" : "Invalid") << std::endl;
             // std::cout << std::endl;
 
-            // Track the last sub-bundle end position (relative to bundle start)
-            if (i == num_bundles - 1) {
+            // Track the furthest sub-bundle end position (relative to bundle start)
+            if (bundle_end > last_bundle_end) {
                 last_bundle_end = bundle_end;
             }
         }
 
-        // Calculate absolute end position and round up to next 4096-byte boundary
+        // No valid code objects in this bundle; nothing more to search for
+        if (last_bundle_end == 0) {
+            break;
+        }
+
+        // Calculate the absolute end of all code objects in this bundle
         uint64_t absolute_end = search_offset + last_bundle_end;
-        search_offset = ((absolute_end + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
-        // std::cout << "Next bundle search position: 0x" << std::hex << search_offset << std::dec << std::endl;
-        // std::cout << std::endl;
+
+        // Try the common case of 4096-byte aligned bundles first
+        uint64_t next_aligned = ((absolute_end + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
+        if (next_aligned + MAGIC_SIZE <= bits.size() &&
+            memcmp(bits.data() + next_aligned, CLANG_OFFLOAD_MAGIC, MAGIC_SIZE) == 0) {
+            search_offset = next_aligned;
+        } else {
+            // Fall back to a sequential scan from the true end of the bundle,
+            // bounded to one alignment unit to avoid scanning the entire section.
+            search_offset = bits.size(); // default: not found
+            size_t scan_limit = std::min(absolute_end + ALIGNMENT, bits.size());
+            for (size_t scan = absolute_end; scan + MAGIC_SIZE <= scan_limit; ++scan) {
+                if (memcmp(bits.data() + scan, CLANG_OFFLOAD_MAGIC, MAGIC_SIZE) == 0) {
+                    search_offset = scan;
+                    break;
+                }
+            }
+        }
     }
 
     std::cout << "Total Clang Offload Bundles found: " << bundle_offsets.size() << std::endl;
