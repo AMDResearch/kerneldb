@@ -614,14 +614,34 @@ size_t getTypeAlignment(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
         return 0;
     }
 
-    // Check if this is a typedef - if so, follow it to get the underlying type's alignment
     Dwarf_Half tag;
-    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK && tag == DW_TAG_typedef) {
-        Dwarf_Die underlying_die = resolveTypedefOneLevel(dbg, type_die, err);
-        if (underlying_die) {
-            size_t alignment = getTypeAlignment(dbg, underlying_die, err);
-            dwarf_dealloc(dbg, underlying_die, DW_DLA_DIE);
-            return alignment;
+    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK) {
+        // Follow typedef chains
+        if (tag == DW_TAG_typedef) {
+            Dwarf_Die underlying_die = resolveTypedefOneLevel(dbg, type_die, err);
+            if (underlying_die) {
+                size_t alignment = getTypeAlignment(dbg, underlying_die, err);
+                dwarf_dealloc(dbg, underlying_die, DW_DLA_DIE);
+                return alignment;
+            }
+        }
+        // Follow const/volatile/restrict qualifier chains
+        if (tag == DW_TAG_const_type || tag == DW_TAG_volatile_type || tag == DW_TAG_restrict_type) {
+            Dwarf_Attribute type_attr;
+            if (dwarf_attr(type_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+                Dwarf_Off type_offset;
+                if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                    Dwarf_Die qualified_die;
+                    if (dwarf_offdie_b(dbg, type_offset, true, &qualified_die, err) == DW_DLV_OK) {
+                        size_t alignment = getTypeAlignment(dbg, qualified_die, err);
+                        dwarf_dealloc(dbg, qualified_die, DW_DLA_DIE);
+                        dwarf_dealloc_attribute(type_attr);
+                        return alignment;
+                    }
+                }
+                dwarf_dealloc_attribute(type_attr);
+            }
+            return 0;
         }
     }
 
@@ -710,14 +730,34 @@ size_t getTypeSize(Dwarf_Debug dbg, Dwarf_Die type_die, Dwarf_Error *err) {
         return 0;
     }
 
-    // Check if this is a typedef - if so, follow it to get the underlying type's size
     Dwarf_Half tag;
-    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK && tag == DW_TAG_typedef) {
-        Dwarf_Die underlying_die = resolveTypedefOneLevel(dbg, type_die, err);
-        if (underlying_die) {
-            size_t size = getTypeSize(dbg, underlying_die, err);
-            dwarf_dealloc(dbg, underlying_die, DW_DLA_DIE);
-            return size;
+    if (dwarf_tag(type_die, &tag, err) == DW_DLV_OK) {
+        // Follow typedef chains
+        if (tag == DW_TAG_typedef) {
+            Dwarf_Die underlying_die = resolveTypedefOneLevel(dbg, type_die, err);
+            if (underlying_die) {
+                size_t size = getTypeSize(dbg, underlying_die, err);
+                dwarf_dealloc(dbg, underlying_die, DW_DLA_DIE);
+                return size;
+            }
+        }
+        // Follow const/volatile/restrict qualifier chains
+        if (tag == DW_TAG_const_type || tag == DW_TAG_volatile_type || tag == DW_TAG_restrict_type) {
+            Dwarf_Attribute type_attr;
+            if (dwarf_attr(type_die, DW_AT_type, &type_attr, err) == DW_DLV_OK) {
+                Dwarf_Off type_offset;
+                if (dwarf_global_formref(type_attr, &type_offset, err) == DW_DLV_OK) {
+                    Dwarf_Die qualified_die;
+                    if (dwarf_offdie_b(dbg, type_offset, true, &qualified_die, err) == DW_DLV_OK) {
+                        size_t size = getTypeSize(dbg, qualified_die, err);
+                        dwarf_dealloc(dbg, qualified_die, DW_DLA_DIE);
+                        dwarf_dealloc_attribute(type_attr);
+                        return size;
+                    }
+                }
+                dwarf_dealloc_attribute(type_attr);
+            }
+            return 0;
         }
     }
 
@@ -1022,17 +1062,43 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
                                                             // Create kernel argument (offset is 0 for top-level args)
                                                             KernelArgument arg(paramNameStr, typeStr, typeSize, 0, alignment, arg_position);
 
+                                                            // Strip const/volatile/restrict qualifiers to find the underlying type
+                                                            // for struct member extraction
+                                                            Dwarf_Die underlying_type_die = type_die;
+                                                            Dwarf_Die qualifier_chain_die = NULL;
+                                                            Dwarf_Half type_tag;
+                                                            if (dwarf_tag(underlying_type_die, &type_tag, &err) == DW_DLV_OK) {
+                                                                while (type_tag == DW_TAG_const_type || type_tag == DW_TAG_volatile_type || type_tag == DW_TAG_restrict_type) {
+                                                                    Dwarf_Attribute qual_type_attr;
+                                                                    if (dwarf_attr(underlying_type_die, DW_AT_type, &qual_type_attr, &err) != DW_DLV_OK) break;
+                                                                    Dwarf_Off qual_type_offset;
+                                                                    if (dwarf_global_formref(qual_type_attr, &qual_type_offset, &err) != DW_DLV_OK) {
+                                                                        dwarf_dealloc_attribute(qual_type_attr);
+                                                                        break;
+                                                                    }
+                                                                    Dwarf_Die next_die;
+                                                                    if (dwarf_offdie_b(dbg, qual_type_offset, true, &next_die, &err) != DW_DLV_OK) {
+                                                                        dwarf_dealloc_attribute(qual_type_attr);
+                                                                        break;
+                                                                    }
+                                                                    dwarf_dealloc_attribute(qual_type_attr);
+                                                                    if (qualifier_chain_die) dwarf_dealloc(dbg, qualifier_chain_die, DW_DLA_DIE);
+                                                                    qualifier_chain_die = next_die;
+                                                                    underlying_type_die = qualifier_chain_die;
+                                                                    if (dwarf_tag(underlying_type_die, &type_tag, &err) != DW_DLV_OK) break;
+                                                                }
+                                                            }
+
                                                             // If this is a struct/class type, extract its members
                                                             // If it's a pointer to a struct, dereference it first
-                                                            Dwarf_Half type_tag;
-                                                            if (dwarf_tag(type_die, &type_tag, &err) == DW_DLV_OK) {
+                                                            if (dwarf_tag(underlying_type_die, &type_tag, &err) == DW_DLV_OK) {
                                                                 if (type_tag == DW_TAG_structure_type || type_tag == DW_TAG_class_type) {
                                                                     // Direct struct - extract members
-                                                                    extractStructMembers(dbg, type_die, arg.members, &err, resolve_typedefs);
+                                                                    extractStructMembers(dbg, underlying_type_die, arg.members, &err, resolve_typedefs);
                                                                 } else if (type_tag == DW_TAG_pointer_type) {
                                                                     // Pointer type - check if it points to a struct
                                                                     Dwarf_Attribute ptr_type_attr;
-                                                                    if (dwarf_attr(type_die, DW_AT_type, &ptr_type_attr, &err) == DW_DLV_OK) {
+                                                                    if (dwarf_attr(underlying_type_die, DW_AT_type, &ptr_type_attr, &err) == DW_DLV_OK) {
                                                                         Dwarf_Off ptr_type_offset;
                                                                         if (dwarf_global_formref(ptr_type_attr, &ptr_type_offset, &err) == DW_DLV_OK) {
                                                                             Dwarf_Die ptr_type_die;
@@ -1051,6 +1117,7 @@ bool extractKernelArguments(const char* filename, size_t offset, size_t hsaco_le
                                                                     }
                                                                 }
                                                             }
+                                                            if (qualifier_chain_die) dwarf_dealloc(dbg, qualifier_chain_die, DW_DLA_DIE);
 
                                                             args.push_back(arg);
 
