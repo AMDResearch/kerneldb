@@ -1,5 +1,6 @@
 build/
 .vscode/
+_codeql_detected_source_root
 
 *.pyc
 *.so*

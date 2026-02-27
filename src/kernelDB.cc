@@ -57,17 +57,13 @@ static std::unordered_set<std::string> branch_instructions = {"s_branch", "s_cbr
 
 
 size_t readFile(const std::string& filename, std::vector<std::string>& lines) {
-    // Validate input parameters
-
     std::ifstream file(filename);
     if (!file.is_open()) {
-        throw std::runtime_error("Unable to open file: " + filename);
+        // Missing source files should not be fatal (e.g., repro binaries built on another machine)
+        return 0;
     }
 
     std::string line;
-    uint32_t currentLine = 0;
-
-    // Read until we reach startLine or EOF
     while (std::getline(file, line)) {
         lines.push_back(line);
     }
@@ -654,9 +650,10 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
 //using namespace llvm;
 //using namespace llvm::object;
 
+// Pair of (bundle_offset, bundle_size) for a single __CLANG_OFFLOAD_BUNDLE__ in .hip_fatbin
+using BundleOffsetSize = std::pair<size_t, size_t>;
 
-
-std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t>& bits)
+std::vector<BundleOffsetSize> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
     // std::cout << "Bundle size: " << bits.size() << " bytes" << std::endl;
 
@@ -664,7 +661,7 @@ std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t
     const size_t MAGIC_SIZE = 24;
     const size_t ALIGNMENT = 4096; // 4096-byte alignment
 
-    std::vector<size_t> bundle_offsets;
+    std::vector<BundleOffsetSize> bundle_offset_sizes;
     size_t search_offset = 0;
 
     // Search for Clang Offload Bundles using calculated positions
@@ -680,10 +677,6 @@ std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t
             break;
         }
 
-        bundle_offsets.push_back(search_offset);
-        // std::cout << "Found Clang Offload Bundle at offset: 0x" << std::hex << search_offset << std::dec << " (" << search_offset << ")" << std::endl;
-
-        // Calculate the next bundle position
         if (search_offset + MAGIC_SIZE + 8 > bits.size()) {
             break;
         }
@@ -720,36 +713,63 @@ std::vector<size_t> findCodeObjectOffsets(hsa_agent_t agent, std::vector<uint8_t
             // std::cout << "  Status: " << (search_offset + bundle_end <= bits.size() ? "Valid" : "Invalid") << std::endl;
             // std::cout << std::endl;
 
-            // Track the last sub-bundle end position (relative to bundle start)
-            if (i == num_bundles - 1) {
+            // Track the furthest sub-bundle end position (relative to bundle start)
+            if (bundle_end > last_bundle_end) {
                 last_bundle_end = bundle_end;
             }
         }
 
-        // Calculate absolute end position and round up to next 4096-byte boundary
+        // No valid code objects in this bundle; nothing more to search for
+        if (last_bundle_end == 0) {
+            break;
+        }
+
+        // Record this bundle's offset and size so COMGR receives only this bundle's bytes
+        bundle_offset_sizes.push_back({search_offset, static_cast<size_t>(last_bundle_end)});
+
+        // Calculate the absolute end of all code objects in this bundle
         uint64_t absolute_end = search_offset + last_bundle_end;
-        search_offset = ((absolute_end + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
-        // std::cout << "Next bundle search position: 0x" << std::hex << search_offset << std::dec << std::endl;
-        // std::cout << std::endl;
+
+        // Try the common case of 4096-byte aligned bundles first
+        uint64_t next_aligned = ((absolute_end + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
+        if (next_aligned + MAGIC_SIZE <= bits.size() &&
+            memcmp(bits.data() + next_aligned, CLANG_OFFLOAD_MAGIC, MAGIC_SIZE) == 0) {
+            search_offset = next_aligned;
+        } else {
+            // Fall back to a sequential scan from the true end of the bundle,
+            // bounded to one alignment unit to avoid scanning the entire section.
+            search_offset = bits.size(); // default: not found
+            size_t scan_limit = std::min(absolute_end + ALIGNMENT, bits.size());
+            for (size_t scan = absolute_end; scan + MAGIC_SIZE <= scan_limit; ++scan) {
+                if (memcmp(bits.data() + scan, CLANG_OFFLOAD_MAGIC, MAGIC_SIZE) == 0) {
+                    search_offset = scan;
+                    break;
+                }
+            }
+        }
     }
 
-    std::cout << "Total Clang Offload Bundles found: " << bundle_offsets.size() << std::endl;
-    return bundle_offsets;
+    std::cout << "Total Clang Offload Bundles found: " << bundle_offset_sizes.size() << std::endl;
+    return bundle_offset_sizes;
 }
 
 
 std::vector<amd_comgr_code_object_info_t> kernelDB::getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits)
 {
     std::vector<amd_comgr_code_object_info_t> results;
-    auto code_object_offsets = findCodeObjectOffsets(agent, bits);
+    auto bundle_offset_sizes = findCodeObjectOffsets(agent, bits);
 
-    for(size_t co_idx = 0; co_idx != code_object_offsets.size(); ++co_idx)
+    for(size_t co_idx = 0; co_idx != bundle_offset_sizes.size(); ++co_idx)
     {
+        size_t bundle_offset = bundle_offset_sizes[co_idx].first;
+        size_t bundle_size  = bundle_offset_sizes[co_idx].second;
+
         amd_comgr_data_t bundle;
         std::vector<std::string> isas = getIsaList(agent);
         CHECK_COMGR(amd_comgr_create_data(AMD_COMGR_DATA_KIND_FATBIN, &bundle));
-        CHECK_COMGR(amd_comgr_set_data(bundle, bits.size() - code_object_offsets[co_idx],
-                                       reinterpret_cast<const char *>(bits.data() + code_object_offsets[co_idx])));
+        // Pass only this bundle's bytes so COMGR decodes this bundle only
+        CHECK_COMGR(amd_comgr_set_data(bundle, bundle_size,
+                                       reinterpret_cast<const char *>(bits.data() + bundle_offset)));
         if (isas.size())
         {
             std::vector<amd_comgr_code_object_info_t> ql;
@@ -760,7 +780,7 @@ std::vector<amd_comgr_code_object_info_t> kernelDB::getCodeObjectInfo(hsa_agent_
 
             for (auto co : ql)
             {
-                co.offset += code_object_offsets[co_idx];
+                co.offset += bundle_offset;
                 /* Collect all ISA-compatible code objects */
                 if (co.size != 0)
                 {
@@ -1115,12 +1135,13 @@ void CDNAKernel::printBlock(std::ostream& out, basicBlock *block, const std::str
            {
                std::string filename = getFileName(inst.path_id_);
                auto it = source_cache_.find(filename);
-               assert(it->second.size() > inst.line_);
-               if (inst.line_)
-                   out << it->second[inst.line_ - 1] << std::endl;
-               else
-                   out << "No source line reference for this instruction: " << inst.disassembly_ << std::endl;
-               out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl;
+               if (it != source_cache_.end() && it->second.size() > inst.line_) {
+                   if (inst.line_)
+                       out << it->second[inst.line_ - 1] << std::endl;
+                   else
+                       out << "No source line reference for this instruction: " << inst.disassembly_ << std::endl;
+                   out << genColumnMarkers(columnMarkers[filename][inst.line_]) << std::endl;
+               }
                processed.insert(inst.line_);
            }
        }
