@@ -339,7 +339,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         }
         catch (const std::runtime_error& e)
         {
-            std::cerr << "Error adding " << name << "\n\t" << e.what();
+            std::cerr << "Error adding " << name << "\n\t" << e.what() << std::endl;
             bReturn = false;
         }
     }
@@ -897,7 +897,14 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
 
         if (combined_addrMap.empty())
         {
-            throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
+            std::shared_lock<std::shared_mutex> lock(mutex_);
+            if (!kernels_.empty())
+            {
+                std::cerr << "Warning: Unable to build address map for " << elfFilePath 
+                          << " (no debug information available). Kernels will lack source line mapping." << std::endl;
+            }
+            // No address map available - kernels will have MISSING_SOURCE_INFO
+            return;
         }
         extractArgumentsFromDwarf(agent, elfFilePath, false);
     }
@@ -909,7 +916,13 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
     }
     else
     {
-        throw std::runtime_error("Unable to build address map for " + std::string(elfFilePath));
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        if (!kernels_.empty())
+        {
+            std::cerr << "Warning: Unable to build address map for " << elfFilePath 
+                      << " (no debug information available). Kernels will lack source line mapping." << std::endl;
+        }
+        // No address map available - kernels will have MISSING_SOURCE_INFO
     }
 }
 
