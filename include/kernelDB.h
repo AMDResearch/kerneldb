@@ -123,6 +123,8 @@ namespace kernelDB {
 
 class basicBlock;
 
+__attribute__((visibility("default"))) std::string demangleName(const char *name);
+__attribute__((visibility("default"))) std::vector<std::string> getIsaList(hsa_agent_t agent);
 std::string getKernelName(const std::string& name);
 
 typedef struct instruction_s{
