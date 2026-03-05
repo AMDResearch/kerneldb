@@ -224,6 +224,8 @@ public:
     static std::vector<amd_comgr_code_object_info_t> getCodeObjectInfo(hsa_agent_t agent, std::vector<uint8_t>& bits);
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
     std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name, bool resolve_typedefs = false);
+    bool scanCodeObject(const std::string& co_file);
+    bool hasKernel(const std::string& name);
 private:
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs);
@@ -237,6 +239,7 @@ private:
     hsa_agent_t agent_;
     std::string fileName_;
     std::map<std::string, std::vector<std::string>> file_map_;
+    std::set<std::string> scanned_code_objects_;
     std::shared_mutex mutex_;
 };
 

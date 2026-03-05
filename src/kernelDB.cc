@@ -367,6 +367,66 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     return bReturn;
 }
 
+bool kernelDB::scanCodeObject(const std::string& co_file)
+{
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        if (scanned_code_objects_.count(co_file))
+            return true;
+    }
+
+    std::string strDisassembly;
+    if (!getDisassembly(agent_, co_file, strDisassembly))
+        return false;
+
+    parseDisassembly(strDisassembly);
+
+    std::map<Dwarf_Addr, SourceLocation> addrMap;
+    buildDwarfAddressMap(co_file.c_str(), 0, 0, addrMap);
+
+    if (!addrMap.empty())
+        processKernelsWithAddressMap(addrMap);
+
+    std::map<std::string, std::vector<KernelArgument>> kernelArgsMap;
+    extractKernelArguments(co_file.c_str(), 0, 0, kernelArgsMap, false);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        for (const auto& entry : kernelArgsMap)
+        {
+            std::string demangledName = demangleName(entry.first.c_str());
+            std::string searchName = getKernelName(demangledName);
+
+            auto it = kernels_.find(searchName);
+            if (it == kernels_.end())
+            {
+                for (auto& k : kernels_)
+                {
+                    if (k.first.compare(0, searchName.length(), searchName) == 0 &&
+                        (k.first.length() == searchName.length() || k.first[searchName.length()] == '('))
+                    {
+                        k.second.get()->setArguments(entry.second);
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                it->second.get()->setArguments(entry.second);
+            }
+        }
+        scanned_code_objects_.insert(co_file);
+    }
+
+    return true;
+}
+
+bool kernelDB::hasKernel(const std::string& name)
+{
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return kernels_.find(getKernelName(name)) != kernels_.end();
+}
+
 std::string kernelDB::extractKernelName(const std::string& line)
 {
     std::string name;
