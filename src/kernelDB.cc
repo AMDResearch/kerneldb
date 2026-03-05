@@ -23,7 +23,6 @@ THE SOFTWARE.
 
 #include <iostream>
 #include <sstream>
-#include <chrono>
 #include <elf.h>
 extern "C"
 {
@@ -300,7 +299,6 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     std::vector<std::string> isas = ::kernelDB::getIsaList(agent);
     std::cout << "Adding " << name << std::endl;
 
-    auto t_extract_start = std::chrono::steady_clock::now();
     if (name.ends_with(".hsaco"))
     {
         {
@@ -321,34 +319,18 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
             bValidExecutable = true;
         }
     }
-    auto t_extract_end = std::chrono::steady_clock::now();
-    std::cerr << "[TIMING]   kernelDB phase 1 - code object extraction (" << name << "): "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(t_extract_end - t_extract_start).count() << " ms" << std::endl;
 
     if(bValidExecutable && isas.size())
     {
         // Disassemble and parse each code object to discover all kernels
-        auto t_disasm_start = std::chrono::steady_clock::now();
-        size_t code_object_index = 0;
-        size_t total_kernels_found = 0;
         for (const auto& hsaco : file_map_[name])
         {
             std::string strDisassembly;
             getDisassembly(agent, hsaco, strDisassembly);
-            if(file_map_[name].size() > 1){
-                std::cout << "  parsing disassembly for code object " << code_object_index++ << ": ";
-            }
-            size_t kernels_before = kernels_.size();
             parseDisassembly(strDisassembly);
-            total_kernels_found += kernels_.size() - kernels_before;
         }
-        auto t_disasm_end = std::chrono::steady_clock::now();
-        std::cerr << "[TIMING]   kernelDB phase 2 - disassembly (" << name << "): "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(t_disasm_end - t_disasm_start).count() << " ms"
-                  << " (" << file_map_[name].size() << " code objects, " << total_kernels_found << " kernels found)" << std::endl;
 
         // Then map all kernels to source
-        auto t_dwarf_start = std::chrono::steady_clock::now();
         try
         {
             mapDisassemblyToSource(agent, name.c_str());
@@ -358,9 +340,6 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
             std::cerr << "Error adding " << name << "\n\t" << e.what() << std::endl;
             bReturn = false;
         }
-        auto t_dwarf_end = std::chrono::steady_clock::now();
-        std::cerr << "[TIMING]   kernelDB phase 3 - DWARF source mapping (" << name << "): "
-                  << std::chrono::duration_cast<std::chrono::milliseconds>(t_dwarf_end - t_dwarf_start).count() << " ms" << std::endl;
     }
     else
         bReturn = false;
