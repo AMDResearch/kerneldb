@@ -23,6 +23,7 @@ THE SOFTWARE.
 
 #include <iostream>
 #include <sstream>
+#include <chrono>
 #include <elf.h>
 extern "C"
 {
@@ -298,6 +299,8 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
     bool bValidExecutable = false;
     std::vector<std::string> isas = ::kernelDB::getIsaList(agent);
     std::cout << "Adding " << name << std::endl;
+
+    auto t_extract_start = std::chrono::steady_clock::now();
     if (name.ends_with(".hsaco"))
     {
         {
@@ -318,10 +321,16 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
             bValidExecutable = true;
         }
     }
+    auto t_extract_end = std::chrono::steady_clock::now();
+    std::cerr << "[TIMING]   kernelDB phase 1 - code object extraction (" << name << "): "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(t_extract_end - t_extract_start).count() << " ms" << std::endl;
+
     if(bValidExecutable && isas.size())
     {
         // Disassemble and parse each code object to discover all kernels
+        auto t_disasm_start = std::chrono::steady_clock::now();
         size_t code_object_index = 0;
+        size_t total_kernels_found = 0;
         for (const auto& hsaco : file_map_[name])
         {
             std::string strDisassembly;
@@ -329,10 +338,17 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
             if(file_map_[name].size() > 1){
                 std::cout << "  parsing disassembly for code object " << code_object_index++ << ": ";
             }
+            size_t kernels_before = kernels_.size();
             parseDisassembly(strDisassembly);
+            total_kernels_found += kernels_.size() - kernels_before;
         }
+        auto t_disasm_end = std::chrono::steady_clock::now();
+        std::cerr << "[TIMING]   kernelDB phase 2 - disassembly (" << name << "): "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t_disasm_end - t_disasm_start).count() << " ms"
+                  << " (" << file_map_[name].size() << " code objects, " << total_kernels_found << " kernels found)" << std::endl;
 
         // Then map all kernels to source
+        auto t_dwarf_start = std::chrono::steady_clock::now();
         try
         {
             mapDisassemblyToSource(agent, name.c_str());
@@ -342,6 +358,9 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
             std::cerr << "Error adding " << name << "\n\t" << e.what() << std::endl;
             bReturn = false;
         }
+        auto t_dwarf_end = std::chrono::steady_clock::now();
+        std::cerr << "[TIMING]   kernelDB phase 3 - DWARF source mapping (" << name << "): "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(t_dwarf_end - t_dwarf_start).count() << " ms" << std::endl;
     }
     else
         bReturn = false;
@@ -860,54 +879,29 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
 
     std::map<Dwarf_Addr, SourceLocation> combined_addrMap;
 
-    if (!strFile.ends_with(".hsaco") && (file_map_[strFile].size() == 1 && file_map_[strFile][0] == strFile))
+    // file_map_[strFile] contains extracted code object temp files (from addFile/extractCodeObjects)
+    // or the original .hsaco file path. Iterate over all entries and build DWARF maps.
+    for (const auto& hsaco_file : file_map_[strFile])
     {
-        // Handle fat binaries with potentially multiple code objects
-        size_t section_offset = 0;
-        std::vector<uint8_t> bits;
-        getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
-        std::vector<amd_comgr_code_object_info_t> code_objects = getCodeObjectInfo(agent, bits);
-
-        // Build and merge address maps for all code objects
-        for (const auto& info : code_objects)
+        std::map<Dwarf_Addr, SourceLocation> addrMap;
+        if (buildDwarfAddressMap(hsaco_file.c_str(), 0, 0, addrMap))
         {
-            if (info.size)
-            {
-                std::map<Dwarf_Addr, SourceLocation> addrMap;
-                if (buildDwarfAddressMap(elfFilePath, section_offset + info.offset, info.size, addrMap))
-                {
-                    combined_addrMap.insert(addrMap.begin(), addrMap.end());
-                }
-            }
+            combined_addrMap.insert(addrMap.begin(), addrMap.end());
         }
-        extractArgumentsFromDwarf(agent, elfFilePath, false);
     }
-    else
+
+    if (combined_addrMap.empty())
     {
-        // Handle single .hsaco file (or already-extracted code objects)
-        // file_map_[strFile] is a vector, iterate over all temp files
-        for (const auto& hsaco_file : file_map_[strFile])
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        if (!kernels_.empty())
         {
-            std::map<Dwarf_Addr, SourceLocation> addrMap;
-            if (buildDwarfAddressMap(hsaco_file.c_str(), 0, 0, addrMap))
-            {
-                combined_addrMap.insert(addrMap.begin(), addrMap.end());
-            }
+            std::cerr << "Warning: Unable to build address map for " << elfFilePath
+                      << " (no debug information available). Kernels will lack source line mapping." << std::endl;
         }
-
-        if (combined_addrMap.empty())
-        {
-            std::shared_lock<std::shared_mutex> lock(mutex_);
-            if (!kernels_.empty())
-            {
-                std::cerr << "Warning: Unable to build address map for " << elfFilePath 
-                          << " (no debug information available). Kernels will lack source line mapping." << std::endl;
-            }
-            // No address map available - kernels will have MISSING_SOURCE_INFO
-            return;
-        }
-        extractArgumentsFromDwarf(agent, elfFilePath, false);
+        // No address map available - kernels will have MISSING_SOURCE_INFO
+        return;
     }
+    extractArgumentsFromDwarf(agent, elfFilePath, false);
 
     // Process all kernels once with the combined address map
     if (!combined_addrMap.empty())
@@ -1007,28 +1001,10 @@ void kernelDB::extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFileP
 
     try
     {
-        // Try DWARF first (for HIP kernels with -g)
-        if (!strFile.ends_with(".hsaco") && (file_map_[strFile].size() == 1 && file_map_[strFile][0] == strFile))
+        // Extract kernel arguments from DWARF info in the already-extracted code objects
+        for (const auto& hsaco_file : file_map_[strFile])
         {
-            size_t section_offset = 0;
-            std::vector<uint8_t> bits;
-            getElfSectionBits(strFile, std::string(".hip_fatbin"), section_offset, bits);
-            std::vector<amd_comgr_code_object_info_t> code_objects = getCodeObjectInfo(agent, bits);
-            for (const auto& info : code_objects)
-            {
-                if (info.size)
-                {
-                    extractKernelArguments(elfFilePath, section_offset + info.offset, info.size, kernelArgsMap, resolve_typedefs);
-                }
-            }
-        }
-        else
-        {
-            // file_map_[strFile] is a vector, iterate over all temp files
-            for (const auto& hsaco_file : file_map_[strFile])
-            {
-                extractKernelArguments(hsaco_file.c_str(), 0, 0, kernelArgsMap, resolve_typedefs);
-            }
+            extractKernelArguments(hsaco_file.c_str(), 0, 0, kernelArgsMap, resolve_typedefs);
         }
 
         // Store the arguments in the kernel objects
