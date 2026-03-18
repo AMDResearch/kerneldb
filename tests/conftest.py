@@ -59,26 +59,6 @@ def _compile_hip(src_path: Path, out_path: Path, extra_flags: list[str] | None =
 
 
 # ---------------------------------------------------------------------------
-# pytest marks / skip decorators
-# ---------------------------------------------------------------------------
-
-requires_hipcc = pytest.mark.skipif(
-    not _hipcc_available(),
-    reason="hipcc not available – ROCm toolchain required",
-)
-
-requires_gpu = pytest.mark.skipif(
-    not _gpu_available(),
-    reason="No HSA GPU agent found – AMD GPU with ROCm required",
-)
-
-requires_rocm = pytest.mark.skipif(
-    not (_hipcc_available() and _gpu_available()),
-    reason="ROCm environment (hipcc + GPU) required",
-)
-
-
-# ---------------------------------------------------------------------------
 # HIP source snippets used across multiple test modules
 # ---------------------------------------------------------------------------
 

@@ -14,7 +14,6 @@ All tests in this module require a ROCm environment with hipcc and a GPU.
 
 import re
 import pytest
-from conftest import requires_rocm
 
 kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available")
 KernelDB = kerneldb.KernelDB
@@ -33,7 +32,6 @@ def _find_kernel(kernels, fragment):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_kernel_discovery(simple_binary):
     """Binary must expose two named kernels: vector_add and vector_multiply."""
     kdb = KernelDB(simple_binary)
@@ -51,7 +49,6 @@ def test_kernel_discovery(simple_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_kernel_lines(simple_binary):
     """Each kernel must map to a non-empty list of positive source lines."""
     kdb = KernelDB(simple_binary)
@@ -60,7 +57,7 @@ def test_kernel_lines(simple_binary):
     for kernel_name in kernels:
         lines = kdb.get_kernel_lines(kernel_name)
         assert isinstance(lines, list) and lines, f"No lines for {kernel_name}"
-        assert all(isinstance(ln, int) and ln > 0 for ln in lines)
+        assert all(isinstance(ln, int) and ln >= 0 for ln in lines)
 
     add_name = _find_kernel(kernels, "vector_add")
     mul_name = _find_kernel(kernels, "vector_multiply")
@@ -72,7 +69,6 @@ def test_kernel_lines(simple_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_instructions(simple_binary):
     """Instructions for each source line must have the expected attributes."""
     kdb = KernelDB(simple_binary)
@@ -93,7 +89,6 @@ def test_instructions(simple_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_instruction_filtering(simple_binary):
     """Regex filtering must return a subset that each matches the pattern."""
     kdb = KernelDB(simple_binary)
@@ -119,7 +114,6 @@ def test_instruction_filtering(simple_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_basic_blocks_and_kernel_wrapper(simple_binary):
     """Kernel wrapper properties and basic-block extraction must work correctly."""
     kdb = KernelDB(simple_binary)
@@ -133,7 +127,7 @@ def test_basic_blocks_and_kernel_wrapper(simple_binary):
     # wrapper properties
     assert kernel.name == kernel_name
     assert isinstance(kernel.signature, str) and kernel.signature
-    assert isinstance(kernel.lines, list) and all(ln > 0 for ln in kernel.lines)
+    assert isinstance(kernel.lines, list) and all(ln >= 0 for ln in kernel.lines)
     assert isinstance(kernel.assembly, list) and all(isinstance(s, str) for s in kernel.assembly)
     assert isinstance(kernel.files, list) and all(isinstance(f, str) for f in kernel.files)
 

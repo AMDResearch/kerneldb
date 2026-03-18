@@ -12,7 +12,6 @@ All tests in this module require a ROCm environment with hipcc and a GPU.
 """
 
 import pytest
-from conftest import requires_rocm
 
 kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available")
 KernelDB = kerneldb.KernelDB
@@ -34,7 +33,6 @@ def _arg_by_name(arguments, name):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_kernel_arguments(arguments_binary):
     """kernel_with_args must expose 4 named arguments with expected types/sizes."""
     kdb = KernelDB(arguments_binary)
@@ -60,7 +58,6 @@ def test_kernel_arguments(arguments_binary):
     assert "int" in n_arg.type_name.lower()
 
 
-@requires_rocm
 def test_kernel_wrapper_arguments(arguments_binary):
     """Kernel.has_arguments() and .arguments must reflect the extracted args."""
     kdb = KernelDB(arguments_binary)
@@ -76,7 +73,6 @@ def test_kernel_wrapper_arguments(arguments_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_nested_struct_arguments(nested_structs_binary):
     """update_bounds args must include a BoundingBox arg exposing Point3D members."""
     kdb = KernelDB(nested_structs_binary)
@@ -109,7 +105,6 @@ def test_nested_struct_arguments(nested_structs_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_typedef_resolution(typedef_binary):
     """typedef_kernel must have 4 args; typedefs preserved or resolved correctly."""
     kdb = KernelDB(typedef_binary)
@@ -143,7 +138,6 @@ def test_typedef_resolution(typedef_binary):
 # ---------------------------------------------------------------------------
 
 
-@requires_rocm
 def test_template_kernel_arguments(template_binary):
     """scale_values must be instantiated for at least float and double."""
     kdb = KernelDB(template_binary)
