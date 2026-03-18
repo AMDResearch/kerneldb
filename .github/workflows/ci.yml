@@ -38,3 +38,9 @@ jobs:
             pip install -e '.[dev]'
             python3 -c 'import kerneldb'
           "
+      - name: Run pytest
+        run: |
+          bash .github/scripts/container_exec.sh "
+            pip install -e '.[dev]'
+            pytest tests/ -v
+          "
