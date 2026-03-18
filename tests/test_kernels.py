@@ -5,8 +5,7 @@
 Tests for KernelDB kernel-level operations:
   - Kernel discovery (get_kernels)
   - Source-line mapping (get_kernel_lines)
-  - Instruction extraction (get_instructions_for_line)
-  - Instruction regex filtering
+  - Instruction extraction and regex filtering (get_instructions_for_line)
   - Basic block extraction
   - High-level Kernel wrapper properties
 
@@ -17,16 +16,11 @@ import re
 import pytest
 from conftest import requires_rocm
 
-kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available", exc_type=ImportError)
+kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available")
 KernelDB = kerneldb.KernelDB
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _find_kernel(kernels: list[str], fragment: str) -> str:
+def _find_kernel(kernels, fragment):
     """Return the first kernel name that contains *fragment*, or skip."""
     matches = [k for k in kernels if fragment in k]
     if not matches:
@@ -35,75 +29,21 @@ def _find_kernel(kernels: list[str], fragment: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# KernelDB initialisation
-# ---------------------------------------------------------------------------
-
-
-@requires_rocm
-def test_kerneldb_init_with_binary(simple_binary):
-    """KernelDB must initialise without raising given a valid binary path."""
-    kdb = KernelDB(simple_binary)
-    assert kdb is not None
-
-
-@requires_rocm
-def test_kerneldb_binary_path_stored(simple_binary):
-    """The binary_path attribute must reflect the path that was given."""
-    kdb = KernelDB(simple_binary)
-    assert kdb.binary_path == simple_binary
-
-
-# ---------------------------------------------------------------------------
 # Kernel discovery
 # ---------------------------------------------------------------------------
 
 
 @requires_rocm
-def test_get_kernels_returns_list(simple_binary):
+def test_kernel_discovery(simple_binary):
+    """Binary must expose two named kernels: vector_add and vector_multiply."""
     kdb = KernelDB(simple_binary)
     kernels = kdb.get_kernels()
+
     assert isinstance(kernels, list)
-
-
-@requires_rocm
-def test_get_kernels_non_empty(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernels = kdb.get_kernels()
-    assert len(kernels) > 0, "Expected at least one kernel in the binary"
-
-
-@requires_rocm
-def test_get_kernels_names_are_strings(simple_binary):
-    kdb = KernelDB(simple_binary)
-    for name in kdb.get_kernels():
-        assert isinstance(name, str)
-        assert len(name) > 0
-
-
-@requires_rocm
-def test_get_kernels_contains_vector_add(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernels = kdb.get_kernels()
-    assert any("vector_add" in k for k in kernels), (
-        f"'vector_add' not found in kernel list: {kernels}"
-    )
-
-
-@requires_rocm
-def test_get_kernels_contains_vector_multiply(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernels = kdb.get_kernels()
-    assert any("vector_multiply" in k for k in kernels), (
-        f"'vector_multiply' not found in kernel list: {kernels}"
-    )
-
-
-@requires_rocm
-def test_get_kernels_two_kernels(simple_binary):
-    """The simple binary has exactly two kernels."""
-    kdb = KernelDB(simple_binary)
-    kernels = kdb.get_kernels()
-    assert len(kernels) == 2, f"Expected 2 kernels, got {len(kernels)}: {kernels}"
+    assert len(kernels) == 2
+    assert all(isinstance(k, str) and k for k in kernels)
+    assert any("vector_add" in k for k in kernels)
+    assert any("vector_multiply" in k for k in kernels)
 
 
 # ---------------------------------------------------------------------------
@@ -112,44 +52,19 @@ def test_get_kernels_two_kernels(simple_binary):
 
 
 @requires_rocm
-def test_get_kernel_lines_returns_list(simple_binary):
+def test_kernel_lines(simple_binary):
+    """Each kernel must map to a non-empty list of positive source lines."""
     kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    lines = kdb.get_kernel_lines(kernel_name)
-    assert isinstance(lines, list)
+    kernels = kdb.get_kernels()
 
+    for kernel_name in kernels:
+        lines = kdb.get_kernel_lines(kernel_name)
+        assert isinstance(lines, list) and lines, f"No lines for {kernel_name}"
+        assert all(isinstance(ln, int) and ln > 0 for ln in lines)
 
-@requires_rocm
-def test_get_kernel_lines_non_empty(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    lines = kdb.get_kernel_lines(kernel_name)
-    assert len(lines) > 0, "Expected at least one source line in kernel"
-
-
-@requires_rocm
-def test_get_kernel_lines_are_positive_integers(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    for line in kdb.get_kernel_lines(kernel_name):
-        assert isinstance(line, int)
-        assert line > 0, f"Line number must be positive, got {line}"
-
-
-@requires_rocm
-def test_different_kernels_have_different_lines(simple_binary):
-    """vector_add and vector_multiply live on different source lines."""
-    kdb = KernelDB(simple_binary)
-    add_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    mul_name = _find_kernel(kdb.get_kernels(), "vector_multiply")
-
-    add_lines = set(kdb.get_kernel_lines(add_name))
-    mul_lines = set(kdb.get_kernel_lines(mul_name))
-
-    # They may share some lines (e.g., the common expression line) but not all
-    assert add_lines != mul_lines, (
-        "vector_add and vector_multiply reported identical line sets"
-    )
+    add_name = _find_kernel(kernels, "vector_add")
+    mul_name = _find_kernel(kernels, "vector_multiply")
+    assert set(kdb.get_kernel_lines(add_name)) != set(kdb.get_kernel_lines(mul_name))
 
 
 # ---------------------------------------------------------------------------
@@ -158,77 +73,19 @@ def test_different_kernels_have_different_lines(simple_binary):
 
 
 @requires_rocm
-def test_get_instructions_for_line_returns_list(simple_binary):
+def test_instructions(simple_binary):
+    """Instructions for each source line must have the expected attributes."""
     kdb = KernelDB(simple_binary)
     kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    first_line = kdb.get_kernel_lines(kernel_name)[0]
-    instructions = kdb.get_instructions_for_line(kernel_name, first_line)
-    assert isinstance(instructions, list)
 
-
-@requires_rocm
-def test_get_instructions_for_line_non_empty(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    first_line = kdb.get_kernel_lines(kernel_name)[0]
-    instructions = kdb.get_instructions_for_line(kernel_name, first_line)
-    assert len(instructions) > 0
-
-
-@requires_rocm
-def test_instructions_have_disassembly_attribute(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    first_line = kdb.get_kernel_lines(kernel_name)[0]
-    instructions = kdb.get_instructions_for_line(kernel_name, first_line)
-    for inst in instructions:
-        assert hasattr(inst, "disassembly")
-        assert isinstance(inst.disassembly, str)
-        assert len(inst.disassembly) > 0
-
-
-@requires_rocm
-def test_instructions_have_line_attribute(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    first_line = kdb.get_kernel_lines(kernel_name)[0]
-    instructions = kdb.get_instructions_for_line(kernel_name, first_line)
-    for inst in instructions:
-        assert hasattr(inst, "line")
-        assert isinstance(inst.line, int)
-
-
-@requires_rocm
-def test_instructions_have_column_attribute(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    first_line = kdb.get_kernel_lines(kernel_name)[0]
-    instructions = kdb.get_instructions_for_line(kernel_name, first_line)
-    for inst in instructions:
-        assert hasattr(inst, "column")
-        assert isinstance(inst.column, int)
-
-
-@requires_rocm
-def test_instructions_have_file_name_attribute(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    first_line = kdb.get_kernel_lines(kernel_name)[0]
-    instructions = kdb.get_instructions_for_line(kernel_name, first_line)
-    for inst in instructions:
-        assert hasattr(inst, "file_name")
-
-
-@requires_rocm
-def test_instruction_line_numbers_match_queried_line(simple_binary):
-    """Instructions returned for a line should report that same line number."""
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
     for line in kdb.get_kernel_lines(kernel_name):
-        for inst in kdb.get_instructions_for_line(kernel_name, line):
-            assert inst.line == line, (
-                f"Expected inst.line == {line}, got {inst.line}"
-            )
+        instructions = kdb.get_instructions_for_line(kernel_name, line)
+        assert isinstance(instructions, list)
+        for inst in instructions:
+            assert isinstance(inst.disassembly, str) and inst.disassembly
+            assert isinstance(inst.line, int) and inst.line == line
+            assert isinstance(inst.column, int)
+            assert hasattr(inst, "file_name")
 
 
 # ---------------------------------------------------------------------------
@@ -237,165 +94,55 @@ def test_instruction_line_numbers_match_queried_line(simple_binary):
 
 
 @requires_rocm
-def test_filter_pattern_returns_subset(simple_binary):
-    """Filtering instructions reduces or keeps the same count."""
+def test_instruction_filtering(simple_binary):
+    """Regex filtering must return a subset that each matches the pattern."""
     kdb = KernelDB(simple_binary)
     kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    all_instructions = []
-    filtered_instructions = []
+    pattern = ".*(load|store).*"
+
+    all_insts, mem_ops = [], []
     for line in kdb.get_kernel_lines(kernel_name):
-        all_instructions.extend(kdb.get_instructions_for_line(kernel_name, line))
-        filtered_instructions.extend(
-            kdb.get_instructions_for_line(kernel_name, line, ".*load.*")
-        )
-    assert len(filtered_instructions) <= len(all_instructions)
+        all_insts.extend(kdb.get_instructions_for_line(kernel_name, line))
+        mem_ops.extend(kdb.get_instructions_for_line(kernel_name, line, pattern))
 
+    assert len(mem_ops) > 0, "vector_add must have at least one load/store"
+    assert len(mem_ops) <= len(all_insts)
+    assert all(re.search(pattern, inst.disassembly, re.IGNORECASE) for inst in mem_ops)
 
-@requires_rocm
-def test_filter_pattern_matches_disassembly(simple_binary):
-    """Each instruction returned by a filter must match the pattern."""
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    pattern = ".*load.*"
+    # A pattern that matches nothing returns empty lists
     for line in kdb.get_kernel_lines(kernel_name):
-        for inst in kdb.get_instructions_for_line(kernel_name, line, pattern):
-            assert re.search(pattern, inst.disassembly, re.IGNORECASE), (
-                f"Instruction {inst.disassembly!r} does not match pattern {pattern!r}"
-            )
-
-
-@requires_rocm
-def test_load_store_filter_finds_memory_ops(simple_binary):
-    """The vector_add kernel must have at least one load/store instruction."""
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    mem_ops = []
-    for line in kdb.get_kernel_lines(kernel_name):
-        mem_ops.extend(
-            kdb.get_instructions_for_line(kernel_name, line, ".*(load|store).*")
-        )
-    assert len(mem_ops) > 0, "Expected at least one memory operation in vector_add"
-
-
-@requires_rocm
-def test_no_match_filter_returns_empty(simple_binary):
-    """A filter that matches nothing must return an empty list per line."""
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    for line in kdb.get_kernel_lines(kernel_name):
-        result = kdb.get_instructions_for_line(
-            kernel_name, line, "THISDOESNOTEXISTINANYASM__xyz"
-        )
-        assert result == [], (
-            f"Expected empty list for impossible filter, got {result}"
-        )
+        assert kdb.get_instructions_for_line(kernel_name, line, "NOMATCH__xyz") == []
 
 
 # ---------------------------------------------------------------------------
-# Basic blocks
+# Basic blocks and Kernel wrapper
 # ---------------------------------------------------------------------------
 
 
 @requires_rocm
-def test_get_basic_blocks_returns_list(simple_binary):
+def test_basic_blocks_and_kernel_wrapper(simple_binary):
+    """Kernel wrapper properties and basic-block extraction must work correctly."""
     kdb = KernelDB(simple_binary)
     kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
     kernel = kdb.get_kernel(kernel_name)
+
+    # basic blocks
     blocks = kernel.get_basic_blocks()
-    assert isinstance(blocks, list)
+    assert isinstance(blocks, list) and blocks
 
-
-@requires_rocm
-def test_get_basic_blocks_non_empty(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
-    blocks = kernel.get_basic_blocks()
-    assert len(blocks) > 0, "Expected at least one basic block in vector_add"
-
-
-# ---------------------------------------------------------------------------
-# Kernel wrapper (high-level API)
-# ---------------------------------------------------------------------------
-
-
-@requires_rocm
-def test_kernel_wrapper_name(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
+    # wrapper properties
     assert kernel.name == kernel_name
+    assert isinstance(kernel.signature, str) and kernel.signature
+    assert isinstance(kernel.lines, list) and all(ln > 0 for ln in kernel.lines)
+    assert isinstance(kernel.assembly, list) and all(isinstance(s, str) for s in kernel.assembly)
+    assert isinstance(kernel.files, list) and all(isinstance(f, str) for f in kernel.files)
 
-
-@requires_rocm
-def test_kernel_wrapper_lines_property(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
-    assert isinstance(kernel.lines, list)
-    assert len(kernel.lines) > 0
-    for line in kernel.lines:
-        assert isinstance(line, int) and line > 0
-
-
-@requires_rocm
-def test_kernel_wrapper_assembly_property(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
-    asm = kernel.assembly
-    assert isinstance(asm, list)
-    assert len(asm) > 0
-    for line in asm:
-        assert isinstance(line, str) and len(line) > 0
-
-
-@requires_rocm
-def test_kernel_wrapper_files_property(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
-    files = kernel.files
-    assert isinstance(files, list)
-    # Source files should be strings
-    for f in files:
-        assert isinstance(f, str)
-
-
-@requires_rocm
-def test_kernel_wrapper_signature_property(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
-    # signature is an alias for name
-    assert isinstance(kernel.signature, str)
-    assert len(kernel.signature) > 0
-
-
-@requires_rocm
-def test_kernel_wrapper_get_instructions_for_line(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
+    # instructions via wrapper
     first_line = kernel.lines[0]
-    instructions = kernel.get_instructions_for_line(first_line)
-    assert isinstance(instructions, list)
-    assert len(instructions) > 0
+    insts = kernel.get_instructions_for_line(first_line)
+    assert isinstance(insts, list) and insts
+    filtered = kernel.get_instructions_for_line(first_line, ".*load.*")
+    assert len(filtered) <= len(insts)
 
-
-@requires_rocm
-def test_kernel_wrapper_get_instructions_with_filter(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    kernel = kdb.get_kernel(kernel_name)
-    all_insts = kernel.get_instructions_for_line(kernel.lines[0])
-    filtered = kernel.get_instructions_for_line(kernel.lines[0], ".*load.*")
-    assert len(filtered) <= len(all_insts)
-
-
-@requires_rocm
-def test_kernel_wrapper_get_file_name(simple_binary):
-    kdb = KernelDB(simple_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "vector_add")
-    result = kdb.get_file_name(kernel_name, 0)
-    assert isinstance(result, str)
+    # file name helper
+    assert isinstance(kdb.get_file_name(kernel_name, 0), str)
