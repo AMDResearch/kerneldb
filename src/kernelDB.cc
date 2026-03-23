@@ -291,23 +291,19 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 void kernelDB::ensureKernelLoaded(const std::string& name)
 {
     std::string canonical = getKernelName(name);
-    std::cerr << "[KDB DEBUG] ensureKernelLoaded: name='" << name << "' canonical='" << canonical << "'" << std::endl;
     std::string hsaco_path, logical_file;
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
         auto it = lazy_kernels_.find(canonical);
         if (it == lazy_kernels_.end())
         {
-            std::cerr << "[KDB DEBUG] ensureKernelLoaded: canonical NOT found in lazy_kernels_" << std::endl;
             return;
         }
         hsaco_path = it->second.first;
         logical_file = it->second.second;
     }
-    std::cerr << "[KDB DEBUG] ensureKernelLoaded: calling scanCodeObjectForKernel hsaco='" << hsaco_path << "'" << std::endl;
     if (!scanCodeObjectForKernel(hsaco_path, canonical))
     {
-        std::cerr << "[KDB DEBUG] ensureKernelLoaded: scanCodeObjectForKernel FAILED" << std::endl;
         return;
     }
     {
@@ -364,7 +360,6 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
                 std::string canonical = getKernelName(demangled);
                 if (canonical.empty())
                     continue;
-                std::cerr << "[KDB DEBUG] lazy index: raw='" << raw << "' demangled='" << demangled << "' canonical='" << canonical << "'" << std::endl;
                 lazy_kernels_[canonical] = {hsaco, name};
             }
         }
@@ -761,7 +756,6 @@ bool kernelDB::parseDisassembly(const std::string& text)
 
 bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel)
 {
-    std::cerr << "[KDB DEBUG] parseDisassemblyForKernel: targetKernel='" << targetKernel << "'" << std::endl;
     bool bReturn = true;
     std::istringstream in(text);
     std::string line;
@@ -794,11 +788,6 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                 strKernel = extractKernelName(line);
                 std::string demangledName = demangleName(strKernel.c_str());
                 std::string canonical = getKernelName(demangledName);
-                std::cerr << "[KDB DEBUG] parseForKernel KERNEL label: raw='" << strKernel
-                          << "' demangled='" << demangledName
-                          << "' canonical='" << canonical
-                          << "' target='" << targetKernel
-                          << "' match=" << (canonical == targetKernel ? "YES" : "NO") << std::endl;
                 if (canonical != targetKernel)
                 {
                     skip = true;
