@@ -2,25 +2,43 @@
 # Copyright (c) 2024 Advanced Micro Devices, Inc. All rights reserved.
 
 """
-Tests for KernelDB kernel argument extraction:
-  - Basic argument metadata (name, type, size, alignment)
-  - Nested struct member recursion
-  - Typedef / using-alias resolution
-  - Template kernel instantiations
+Tests for KernelDB kernel argument extraction: basic metadata, nested structs,
+typedef resolution, and template instantiations.
 
-All tests in this module require a ROCm environment with hipcc and a GPU.
+All tests require a ROCm environment with hipcc and a GPU.
 """
 
+import subprocess
+import tempfile
+from pathlib import Path
+
 import pytest
+
+from conftest import requires_rocm
 
 kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available")
 KernelDB = kerneldb.KernelDB
 
 
+# -- Helpers ----------------------------------------------------------------
+
+
+def _compile(source, name):
+    tmp = Path(tempfile.mkdtemp(prefix=f"kerneldb_{name}_"))
+    src = tmp / f"{name}.cpp"
+    exe = tmp / name
+    src.write_text(source)
+    r = subprocess.run(["hipcc", "-g", str(src), "-o", str(exe)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        pytest.skip(f"hipcc compilation failed:\n{r.stderr}")
+    return str(exe)
+
+
 def _find_kernel(kernels, fragment):
     matches = [k for k in kernels if fragment in k]
     if not matches:
-        pytest.skip(f"No kernel containing {fragment!r} found in binary")
+        pytest.skip(f"No kernel containing {fragment!r} found")
     return matches[0]
 
 
@@ -28,16 +46,98 @@ def _arg_by_name(arguments, name):
     return next((a for a in arguments if a.name == name), None)
 
 
-# ---------------------------------------------------------------------------
-# Basic argument metadata
-# ---------------------------------------------------------------------------
+# -- HIP sources -----------------------------------------------------------
+
+_ARGS_SOURCE = r"""
+#include <hip/hip_runtime.h>
+
+__global__ void kernel_with_args(double* a, double* b, double* c, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        c[idx] = a[idx] + b[idx];
+    }
+}
+
+int main() { return 0; }
+"""
+
+_NESTED_SOURCE = r"""
+#include <hip/hip_runtime.h>
+
+struct Point3D {
+    float x;
+    float y;
+    float z;
+};
+
+struct BoundingBox {
+    Point3D min_pt;
+    Point3D max_pt;
+};
+
+__global__ void update_bounds(BoundingBox* boxes, int count) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count) {
+        boxes[idx].min_pt.x = 0.0f;
+    }
+}
+
+int main() { return 0; }
+"""
+
+_TYPEDEF_SOURCE = r"""
+#include <hip/hip_runtime.h>
+
+using MyInt = int;
+using MyFloat = float;
+typedef double MyDouble;
+
+__global__ void typedef_kernel(MyInt a, MyFloat b, MyDouble c, int* d) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx == 0) {
+        d[0] = a + static_cast<int>(b) + static_cast<int>(c);
+    }
+}
+
+int main() { return 0; }
+"""
+
+_TEMPLATE_SOURCE = r"""
+#include <hip/hip_runtime.h>
+
+template<typename T>
+__global__ void scale_values(T* input, T* output, T factor, int n) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        output[idx] = input[idx] * factor;
+    }
+}
+
+template __global__ void scale_values<float>(float*, float*, float, int);
+template __global__ void scale_values<double>(double*, double*, double, int);
+
+int main() { return 0; }
+"""
+
+# -- Cached binaries (compiled once per process) ----------------------------
+
+_cache = {}
 
 
-def test_kernel_arguments(arguments_binary):
-    """kernel_with_args must expose 4 named arguments with expected types/sizes."""
-    kdb = KernelDB(arguments_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "kernel_with_args")
-    args = kdb.get_kernel_arguments(kernel_name)
+def _get_binary(source, name):
+    if name not in _cache:
+        _cache[name] = _compile(source, name)
+    return _cache[name]
+
+
+# -- Tests: basic arguments ------------------------------------------------
+
+
+@requires_rocm
+def test_kernel_arguments():
+    kdb = KernelDB(_get_binary(_ARGS_SOURCE, "args"))
+    name = _find_kernel(kdb.get_kernels(), "kernel_with_args")
+    args = kdb.get_kernel_arguments(name)
 
     assert isinstance(args, list) and len(args) == 4
     for arg in args:
@@ -46,50 +146,43 @@ def test_kernel_arguments(arguments_binary):
         assert isinstance(arg.size, int) and arg.size > 0
         assert isinstance(arg.alignment, int) and arg.alignment > 0
 
-    names = [a.name for a in args]
     for expected in ("a", "b", "c", "n"):
-        assert expected in names, f"Expected argument {expected!r} in {names}"
+        assert expected in [a.name for a in args]
 
-    ptr_arg = _arg_by_name(args, "a")
-    assert ptr_arg.size == 8, f"Pointer size must be 8 bytes, got {ptr_arg.size}"
-
+    assert _arg_by_name(args, "a").size == 8  # pointer = 8 bytes
     n_arg = _arg_by_name(args, "n")
-    assert n_arg.size == 4, f"int size must be 4 bytes, got {n_arg.size}"
+    assert n_arg.size == 4
     assert "int" in n_arg.type_name.lower()
 
 
-def test_kernel_wrapper_arguments(arguments_binary):
-    """Kernel.has_arguments() and .arguments must reflect the extracted args."""
-    kdb = KernelDB(arguments_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "kernel_with_args")
-    kernel = kdb.get_kernel(kernel_name)
+@requires_rocm
+def test_kernel_wrapper_arguments():
+    kdb = KernelDB(_get_binary(_ARGS_SOURCE, "args"))
+    name = _find_kernel(kdb.get_kernels(), "kernel_with_args")
+    kernel = kdb.get_kernel(name)
 
     assert kernel.has_arguments() is True
     assert isinstance(kernel.arguments, list) and kernel.arguments
 
 
-# ---------------------------------------------------------------------------
-# Nested struct member recursion
-# ---------------------------------------------------------------------------
+# -- Tests: nested structs -------------------------------------------------
 
 
-def test_nested_struct_arguments(nested_structs_binary):
-    """update_bounds args must include a BoundingBox arg exposing Point3D members."""
-    kdb = KernelDB(nested_structs_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "update_bounds")
-    args = kdb.get_kernel_arguments(kernel_name)
+@requires_rocm
+def test_nested_struct_arguments():
+    kdb = KernelDB(_get_binary(_NESTED_SOURCE, "nested"))
+    name = _find_kernel(kdb.get_kernels(), "update_bounds")
+    args = kdb.get_kernel_arguments(name)
 
-    # Every argument must have a members attribute
     for arg in args:
         assert hasattr(arg, "members")
 
-    # Helper: recursively search for a type by name
-    def find_type(arg_list, type_fragment):
+    def find_type(arg_list, fragment):
         for arg in arg_list:
-            if type_fragment in arg.type_name:
+            if fragment in arg.type_name:
                 return arg
             if arg.members:
-                found = find_type(arg.members, type_fragment)
+                found = find_type(arg.members, fragment)
                 if found:
                     return found
         return None
@@ -97,62 +190,49 @@ def test_nested_struct_arguments(nested_structs_binary):
     point = find_type(args, "Point3D")
     if point is None:
         pytest.skip("Point3D not found in argument tree (may be optimised away)")
-    assert len(point.members) == 3, f"Point3D should have 3 members, got {len(point.members)}"
+    assert len(point.members) == 3
 
 
-# ---------------------------------------------------------------------------
-# Typedef / using-alias resolution
-# ---------------------------------------------------------------------------
+# -- Tests: typedef resolution ---------------------------------------------
 
 
-def test_typedef_resolution(typedef_binary):
-    """typedef_kernel must have 4 args; typedefs preserved or resolved correctly."""
-    kdb = KernelDB(typedef_binary)
-    kernel_name = _find_kernel(kdb.get_kernels(), "typedef_kernel")
+@requires_rocm
+def test_typedef_resolution():
+    kdb = KernelDB(_get_binary(_TYPEDEF_SOURCE, "typedef"))
+    name = _find_kernel(kdb.get_kernels(), "typedef_kernel")
 
-    args_raw = kdb.get_kernel_arguments(kernel_name, resolve_typedefs=False)
+    args_raw = kdb.get_kernel_arguments(name, resolve_typedefs=False)
     assert len(args_raw) == 4
+    raw_types = [a.type_name for a in args_raw]
+    assert any(n in ("MyInt", "MyFloat", "MyDouble") for n in raw_types)
 
-    type_names_raw = [a.type_name for a in args_raw]
-    assert any(n in ("MyInt", "MyFloat", "MyDouble") for n in type_names_raw), (
-        f"Expected typedef names to be preserved, got: {type_names_raw}"
-    )
-
-    args_resolved = kdb.get_kernel_arguments(kernel_name, resolve_typedefs=True)
-    type_names_resolved = [a.type_name for a in args_resolved]
+    args_resolved = kdb.get_kernel_arguments(name, resolve_typedefs=True)
+    resolved_types = [a.type_name for a in args_resolved]
     for alias in ("MyInt", "MyFloat", "MyDouble"):
-        assert alias not in type_names_resolved, (
-            f"Alias {alias!r} should have been resolved, got: {type_names_resolved}"
-        )
+        assert alias not in resolved_types
 
-    primitive_types = {"int", "float", "double", "unsigned int"}
-    for type_name in type_names_resolved:
-        base = type_name.replace("*", "").strip()
-        assert any(p in base for p in primitive_types), (
-            f"Resolved type {type_name!r} does not look like a C primitive"
-        )
+    primitives = {"int", "float", "double", "unsigned int"}
+    for t in resolved_types:
+        base = t.replace("*", "").strip()
+        assert any(p in base for p in primitives), f"{t!r} doesn't look primitive"
 
 
-# ---------------------------------------------------------------------------
-# Template kernel instantiations
-# ---------------------------------------------------------------------------
+# -- Tests: template instantiations ----------------------------------------
 
 
-def test_template_kernel_arguments(template_binary):
-    """scale_values must be instantiated for at least float and double."""
-    kdb = KernelDB(template_binary)
+@requires_rocm
+def test_template_kernel_arguments():
+    kdb = KernelDB(_get_binary(_TEMPLATE_SOURCE, "template"))
     kernels = kdb.get_kernels()
 
     scale_kernels = [k for k in kernels if "scale_values" in k]
-    assert len(scale_kernels) >= 2, f"Expected ≥2 template instantiations, got {scale_kernels}"
+    assert len(scale_kernels) >= 2
 
-    for type_fragment in ("float", "double"):
-        matching = [k for k in scale_kernels if type_fragment in k]
+    for type_frag in ("float", "double"):
+        matching = [k for k in scale_kernels if type_frag in k]
         if not matching:
-            pytest.skip(f"scale_values<{type_fragment}> not found in binary")
+            pytest.skip(f"scale_values<{type_frag}> not found")
         args = kdb.get_kernel_arguments(matching[0])
-        assert len(args) == 4, f"Expected 4 args for scale_values<{type_fragment}>"
+        assert len(args) == 4
         non_int = [a for a in args if a.name != "n"]
-        assert all(type_fragment in a.type_name.lower() for a in non_int), (
-            f"Non-count args should be {type_fragment}: {[a.type_name for a in non_int]}"
-        )
+        assert all(type_frag in a.type_name.lower() for a in non_int)
