@@ -36,6 +36,11 @@ kerneldb = ["*.so", "*.so.*"]
 [tool.setuptools.dynamic]
 version = {attr = "setuptools_scm.get_version"}
 
+# ---- pytest configuration ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
 # ---- setuptools-scm versioning ----
 [tool.setuptools_scm]
 version_scheme = "post-release"   # .postN after last tag
