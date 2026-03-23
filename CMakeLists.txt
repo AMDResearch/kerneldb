@@ -187,23 +187,11 @@ if(KERNELDB_BUILD_TESTING)
 endif()
 
 # Installation and packaging
-set(DEST_NAME ${KERNELDB_NAME})
-if(DEFINED CPACK_PACKAGING_INSTALL_PREFIX)
-  get_filename_component(pkg_name ${CPACK_PACKAGING_INSTALL_PREFIX} NAME)
-  get_filename_component(pkg_dir ${CPACK_PACKAGING_INSTALL_PREFIX} DIRECTORY)
-  if(pkg_name STREQUAL ${DEST_NAME})
-    set(CPACK_PACKAGING_INSTALL_PREFIX ${pkg_dir})
-  endif()
-else()
+if(NOT DEFINED CPACK_PACKAGING_INSTALL_PREFIX)
   set(CPACK_PACKAGING_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX})
 endif()
 message("CMake-install-prefix: ${CMAKE_INSTALL_PREFIX}")
 message("CPack-install-prefix: ${CPACK_PACKAGING_INSTALL_PREFIX}")
-message("-----------Dest-name: ${DEST_NAME}")
-
-# Install header and library
-#install(TARGETS ${KERNELDB_TARGET} LIBRARY DESTINATION ${DEST_NAME}/lib)
-#install(FILES ${LIB_DIR}/kerneldb DESTINATION ${DEST_NAME}/bin)
 
 # Packaging directives
 set(CPACK_GENERATOR "DEB" "RPM" "TGZ")
