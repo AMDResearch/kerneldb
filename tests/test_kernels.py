@@ -144,4 +144,4 @@ def test_basic_blocks_and_kernel_wrapper():
     filtered = kernel.get_instructions_for_line(first_line, ".*load.*")
     assert len(filtered) <= len(insts)
 
-    assert isinstance(kdb.get_file_name(name, 0), str)
+    assert isinstance(kdb.get_file_name(name, 1), str)
