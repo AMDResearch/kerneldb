@@ -127,8 +127,18 @@ PYBIND11_MODULE(_kerneldb, m) {
              "Create KernelDB instance with agent and filename",
              py::arg("agent"), py::arg("filename"))
         .def(py::init<hsa_agent_t>(),
-             "Create KernelDB instance with agent (searches process)",
+             "Create empty KernelDB for lazy loading (add files with add_file)",
              py::arg("agent"))
+        .def("add_file", &kernelDB::kernelDB::addFile,
+             "Add a binary. If lazy=True (default), only index kernel names (no disassembly). "
+             "Disassembly runs on demand when you get assembly/source/args for a kernel.",
+             py::arg("path"), py::arg("agent"), py::arg("filter") = "", py::arg("lazy") = true)
+        .def("scan_code_object", &kernelDB::kernelDB::scanCodeObject,
+             "Scan a single .hsaco code object (disassembly + DWARF + args). Idempotent if already scanned.",
+             py::arg("co_file"))
+        .def("has_kernel", &kernelDB::kernelDB::hasKernel,
+             "Return True if a kernel with the given name exists",
+             py::arg("name"))
         .def("get_kernel", &kernelDB::kernelDB::getKernel,
              "Get a kernel by name",
              py::arg("name"),

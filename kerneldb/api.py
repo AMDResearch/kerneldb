@@ -38,14 +38,16 @@ class KernelDB:
     to query instruction-level information mapped to source lines.
     """
 
-    def __init__(self, binary_path: Optional[str] = None, agent_id: Optional[int] = None):
+    def __init__(self, binary_path: Optional[str] = None, agent_id: Optional[int] = None, lazy: bool = False):
         """
         Initialize KernelDB
 
         Args:
-            binary_path: Path to HSACO or HIP binary file. If empty string or None,
-                        will search in the running process for fat binaries.
+            binary_path: Path to HSACO or HIP binary file. If None and lazy=False,
+                        empty string loads the running process executable + shared libs.
             agent_id: HSA agent handle (if None, will use first GPU)
+            lazy: If True, create an empty DB; load binaries later with add_file() to avoid
+                  loading the whole process. If False, load binary_path (or process) in constructor.
         """
         # Initialize HSA
         status = _kerneldb.hsa_init()
@@ -61,10 +63,53 @@ class KernelDB:
             if self.agent.handle == 0:
                 raise RuntimeError("No GPU agent found")
 
-        # Create kernelDB instance (analysis happens in constructor)
-        binary_path = binary_path or ""
-        self._kdb = _kerneldb.KernelDB(self.agent, binary_path)
-        self.binary_path = binary_path
+        if lazy:
+            # Empty DB; add files with add_file() for lazy loading
+            self._kdb = _kerneldb.KernelDB(self.agent)
+            self.binary_path = None
+        else:
+            binary_path = binary_path or ""
+            self._kdb = _kerneldb.KernelDB(self.agent, binary_path)
+            self.binary_path = binary_path or None
+
+    def add_file(self, path: str, filter: str = "", lazy: bool = True) -> bool:
+        """
+        Add a binary (HIP executable or .hsaco).
+
+        With lazy=True (default): only indexes kernel names and their code-object
+        locations—no disassembly. Disassembly is done on demand when you call
+        get_kernel(), get_kernel_lines(), get_instructions_for_line(), or access
+        assembly/arguments for a kernel.
+
+        With lazy=False: full load (disassemble all code objects and map to source),
+        same as the previous behavior.
+
+        Args:
+            path: Path to HIP fat binary or .hsaco file
+            filter: Optional kernel name filter (currently unused in C++)
+            lazy: If True (default), only index; disassemble on first use per code object.
+
+        Returns:
+            True on success
+        """
+        return self._kdb.add_file(path, self.agent, filter, lazy)
+
+    def scan_code_object(self, co_file: str) -> bool:
+        """
+        Scan a single .hsaco code object (disassembly + DWARF + args).
+        Idempotent if the code object was already scanned.
+
+        Args:
+            co_file: Path to a .hsaco file
+
+        Returns:
+            True on success
+        """
+        return self._kdb.scan_code_object(co_file)
+
+    def has_kernel(self, name: str) -> bool:
+        """Return True if a kernel with the given name exists."""
+        return self._kdb.has_kernel(name)
 
     def get_kernels(self) -> List[str]:
         """

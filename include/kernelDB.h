@@ -210,7 +210,7 @@ public:
     ~kernelDB();
     bool getBasicBlocks(const std::string& name, std::vector<basicBlock>&);
     CDNAKernel& getKernel(const std::string& name);
-    bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter);
+    bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter, bool lazy = false);
     bool parseDisassembly(const std::string& text);
     void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);
     bool addKernel(std::unique_ptr<CDNAKernel> kernel);
@@ -227,6 +227,10 @@ public:
     bool scanCodeObject(const std::string& co_file);
     bool hasKernel(const std::string& name);
 private:
+    /// Get kernel symbol names from a .hsaco ELF without disassembling (reads .symtab).
+    static std::vector<std::string> getKernelNamesFromElf(const std::string& fileName);
+    /// If kernel is lazy-loaded, disassemble its code object and fill kernels_; then remove from lazy set.
+    void ensureKernelLoaded(const std::string& name);
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs);
     void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap);
@@ -240,6 +244,8 @@ private:
     std::string fileName_;
     std::map<std::string, std::vector<std::string>> file_map_;
     std::set<std::string> scanned_code_objects_;
+    /// Lazy-loaded kernels: name -> (hsaco_path, logical_file_name). Filled by addFile(..., lazy=true).
+    std::map<std::string, std::pair<std::string, std::string>> lazy_kernels_;
     std::shared_mutex mutex_;
 };
 
