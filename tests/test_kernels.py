@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
 
 """
 Tests for KernelDB kernel-level operations: discovery, source-line mapping,
@@ -19,8 +19,6 @@ from conftest import requires_rocm
 
 kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available")
 KernelDB = kerneldb.KernelDB
-
-# -- HIP source compiled once per module ------------------------------------
 
 _HIP_SOURCE = r"""
 #include <hip/hip_runtime.h>
@@ -66,9 +64,6 @@ def _find_kernel(kernels, fragment):
     if not matches:
         pytest.skip(f"No kernel containing {fragment!r} found")
     return matches[0]
-
-
-# -- Tests ------------------------------------------------------------------
 
 
 @requires_rocm

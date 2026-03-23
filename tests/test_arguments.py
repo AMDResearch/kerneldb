@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2024 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
 
 """
 Tests for KernelDB kernel argument extraction: basic metadata, nested structs,
@@ -18,9 +18,6 @@ from conftest import requires_rocm
 
 kerneldb = pytest.importorskip("kerneldb", reason="kernelDB C++ extension not available")
 KernelDB = kerneldb.KernelDB
-
-
-# -- Helpers ----------------------------------------------------------------
 
 
 def _compile(source, name):
@@ -45,8 +42,6 @@ def _find_kernel(kernels, fragment):
 def _arg_by_name(arguments, name):
     return next((a for a in arguments if a.name == name), None)
 
-
-# -- HIP sources -----------------------------------------------------------
 
 _ARGS_SOURCE = r"""
 #include <hip/hip_runtime.h>
@@ -119,8 +114,6 @@ template __global__ void scale_values<double>(double*, double*, double, int);
 int main() { return 0; }
 """
 
-# -- Cached binaries (compiled once per process) ----------------------------
-
 _cache = {}
 
 
@@ -128,9 +121,6 @@ def _get_binary(source, name):
     if name not in _cache:
         _cache[name] = _compile(source, name)
     return _cache[name]
-
-
-# -- Tests: basic arguments ------------------------------------------------
 
 
 @requires_rocm
@@ -165,9 +155,6 @@ def test_kernel_wrapper_arguments():
     assert isinstance(kernel.arguments, list) and kernel.arguments
 
 
-# -- Tests: nested structs -------------------------------------------------
-
-
 @requires_rocm
 def test_nested_struct_arguments():
     kdb = KernelDB(_get_binary(_NESTED_SOURCE, "nested"))
@@ -193,9 +180,6 @@ def test_nested_struct_arguments():
     assert len(point.members) == 3
 
 
-# -- Tests: typedef resolution ---------------------------------------------
-
-
 @requires_rocm
 def test_typedef_resolution():
     kdb = KernelDB(_get_binary(_TYPEDEF_SOURCE, "typedef"))
@@ -215,9 +199,6 @@ def test_typedef_resolution():
     for t in resolved_types:
         base = t.replace("*", "").strip()
         assert any(p in base for p in primitives), f"{t!r} doesn't look primitive"
-
-
-# -- Tests: template instantiations ----------------------------------------
 
 
 @requires_rocm
