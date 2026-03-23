@@ -175,8 +175,7 @@ def test_nested_struct_arguments():
         return None
 
     point = find_type(args, "Point3D")
-    if point is None:
-        pytest.skip("Point3D not found in argument tree (may be optimised away)")
+    assert point is not None, "Point3D not found in argument tree"
     assert len(point.members) == 3
 
 
