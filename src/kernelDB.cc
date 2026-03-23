@@ -290,34 +290,25 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 
 void kernelDB::ensureKernelLoaded(const std::string& name)
 {
+    std::string canonical = getKernelName(name);
     std::string hsaco_path, logical_file;
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
-        auto it = lazy_kernels_.find(getKernelName(name));
+        auto it = lazy_kernels_.find(canonical);
         if (it == lazy_kernels_.end())
+        {
             return;
+        }
         hsaco_path = it->second.first;
         logical_file = it->second.second;
     }
-    if (!scanCodeObject(hsaco_path))
+    if (!scanCodeObjectForKernel(hsaco_path, canonical))
+    {
         return;
-    try
-    {
-        mapDisassemblyToSource(agent_, logical_file.c_str());
-    }
-    catch (const std::runtime_error& e)
-    {
-        std::cerr << "Error mapping source for " << logical_file << ": " << e.what() << std::endl;
     }
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        for (auto it = lazy_kernels_.begin(); it != lazy_kernels_.end(); )
-        {
-            if (it->second.first == hsaco_path)
-                it = lazy_kernels_.erase(it);
-            else
-                ++it;
-        }
+        lazy_kernels_.erase(canonical);
     }
 }
 
@@ -443,6 +434,60 @@ bool kernelDB::scanCodeObject(const std::string& co_file)
             }
         }
         scanned_code_objects_.insert(co_file);
+    }
+
+    return true;
+}
+
+bool kernelDB::scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName)
+{
+    std::string strDisassembly;
+    if (!getDisassembly(agent_, co_file, strDisassembly))
+    {
+        return false;
+    }
+
+    parseDisassemblyForKernel(strDisassembly, kernelName);
+
+    std::map<Dwarf_Addr, SourceLocation> addrMap;
+    buildDwarfAddressMap(co_file.c_str(), 0, 0, addrMap);
+
+    if (!addrMap.empty())
+    {
+        processKernelsWithAddressMap(addrMap, kernelName);
+    }
+
+    // Extract arguments only for the target kernel
+    std::map<std::string, std::vector<KernelArgument>> kernelArgsMap;
+    extractKernelArguments(co_file.c_str(), 0, 0, kernelArgsMap, false);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        for (const auto& entry : kernelArgsMap)
+        {
+            std::string demangledName = demangleName(entry.first.c_str());
+            std::string searchName = getKernelName(demangledName);
+
+            auto it = kernels_.find(searchName);
+            if (it == kernels_.end())
+            {
+                for (auto& k : kernels_)
+                {
+                    if (k.first.compare(0, searchName.length(), searchName) == 0 &&
+                        (k.first.length() == searchName.length() || k.first[searchName.length()] == '('))
+                    {
+                        k.second.get()->setArguments(entry.second);
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                it->second.get()->setArguments(entry.second);
+            }
+        }
+        // Do NOT mark co_file in scanned_code_objects_ — other kernels from this
+        // code object may still need loading later.
     }
 
     return true;
@@ -705,6 +750,161 @@ bool kernelDB::parseDisassembly(const std::string& text)
     }
 
     std::cout << "Marker Count: " << markers.size() << " Kernel Count: " << kernels_.size() << std::endl;
+
+    return bReturn;
+}
+
+bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel)
+{
+    bool bReturn = true;
+    std::istringstream in(text);
+    std::string line;
+    parse_mode mode = BEGIN;
+    std::string strKernel;
+    uint32_t block_count = 0;
+    std::unique_ptr<CDNAKernel> kernel;
+    CDNAKernel *current_kernel = nullptr;
+    std::unique_ptr<basicBlock> block;
+    basicBlock *current_block = nullptr;
+    std::map<std::string, std::set<uint64_t>> markers;
+    getBlockMarkers(text, markers);
+    std::map<std::string, std::set<uint64_t>>::iterator mit;
+    bool bDoingKernels = false;
+    bool skip = false;  // true when current kernel is not the target
+    while(std::getline(in,line))
+    {
+        bool blockCreated = false;
+        std::vector<std::string> tokens;
+        mode = getLineType(line);
+        switch(mode)
+        {
+            case BEGIN:
+                mode = KERNEL;
+                block_count = 0;
+                break;
+            case KERNEL:
+            {
+                bDoingKernels = true;
+                strKernel = extractKernelName(line);
+                std::string demangledName = demangleName(strKernel.c_str());
+                std::string canonical = getKernelName(demangledName);
+                if (canonical != targetKernel)
+                {
+                    skip = true;
+                    current_kernel = nullptr;
+                    current_block = nullptr;
+                    break;
+                }
+                skip = false;
+                kernel = std::make_unique<CDNAKernel>(demangledName);
+                mit = markers.find(demangledName);
+                assert(mit != markers.end());
+                current_kernel = kernel.get();
+                mode = BBLOCK;
+                addKernel(std::move(kernel));
+                break;
+            }
+            case BBLOCK:
+                if (!bDoingKernels || skip)
+                {
+                    break;
+                }
+                split(line, tokens, " ", false);
+                if (tokens.size())
+                {
+                    if (!current_block)
+                    {
+                        block = std::make_unique<basicBlock>();
+                        block_count++;
+                        current_block = block.get();
+                        blockCreated = true;
+                    }
+                    trim(tokens[0]);
+                    if (isBranch(tokens[0]))
+                    {
+                        if (current_kernel)
+                        {
+                            current_kernel->addBlock(block_count, std::move(block));
+                        }
+                        else
+                        {
+                            std::cout << "Disassembly parsing error. Processing a branch instruction when there's not a kernel currently defined.\n";
+                            std::cout << line << std::endl;
+                            abort();
+                        }
+                        if (tokens[0].find("s_endpgm") != std::string::npos)
+                        {
+                            blockCreated = true;
+                            block = std::make_unique<basicBlock>();
+                            block_count++;
+                            current_block = block.get();
+                        }
+                        else
+                        {
+                            current_block = nullptr;
+                            continue;
+                        }
+                    }
+                    std::vector<std::string> inst_tokens;
+                    instruction_t inst;
+
+                    if (tokens.size() > 1 && tokens[0].find("_") != std::string::npos)
+                    {
+                        split(tokens[0], inst_tokens, "_", false);
+                        if (inst_tokens.size() > 2 && (inst_tokens[1] == "load" || inst_tokens[1] == "store"))
+                        {
+                            inst.prefix_ = inst_tokens[0];
+                            inst.type_ = inst_tokens[1];
+                            inst.size_ = inst_tokens[2];
+                        }
+                        inst.inst_ = tokens[0];
+                        inst.disassembly_ = line;
+                        for (size_t i = 1; i < tokens.size() && tokens[i].find("//") == std::string::npos; i++)
+                        {
+                            inst.operands_.push_back(tokens[i]);
+                        }
+                        size_t i = 1;
+                        while (tokens[i].find("//") == std::string::npos)
+                        {
+                            i++;
+                        }
+                        std::string strAddress = tokens[++i];
+                        strAddress.pop_back();
+                        inst.address_ = std::stoull(strAddress, nullptr, 16);
+                        if (!blockCreated && mit != markers.end() && (mit->second.find(inst.address_) != mit->second.end()))
+                        {
+                            if (current_block)
+                            {
+                                current_kernel->addBlock(block_count, std::move(block));
+                            }
+                            block = std::make_unique<basicBlock>();
+                            block_count++;
+                            current_block = block.get();
+                        }
+                        inst.block_ = current_block;
+                        current_block->addInstruction(inst);
+                        if (inst.inst_ == "s_endpgm")
+                        {
+                            if (current_kernel && current_block)
+                            {
+                                current_kernel->addBlock(block_count, std::move(block));
+                                current_block = nullptr;
+                            }
+                            else
+                            {
+                                std::cerr << "Error parsing disassembly - s_endpgm without current kernel or block\n";
+                            }
+                        }
+                    }
+                }
+                break;
+            case BRANCH:
+                current_block = nullptr;
+                break;
+            default:
+                break;
+        }
+    }
 
     return bReturn;
 }
@@ -987,12 +1187,17 @@ void CDNAKernel::getSourceCode(std::vector<std::string>& outputLines)
 }
 
 
-void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap)
+void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap, const std::string& targetKernel)
 {
     std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.begin();
     while(it != kernels_.end())
     {
+        if (!targetKernel.empty() && it->first != targetKernel)
+        {
+            it++;
+            continue;
+        }
         const auto& blocks = it->second.get()->getBasicBlocks();
         for (const auto& block : blocks)
         {
@@ -1018,7 +1223,6 @@ void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLoc
                     instruction.block_ = inst.block_ = block.get();
                     instruction.path_id_ = inst.path_id_ = MISSING_SOURCE_INFO;
                     it->second.get()->addLine(MISSING_SOURCE_INFO, inst);
-                    //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
                 }
             }
         }
