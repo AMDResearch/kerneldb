@@ -170,9 +170,6 @@ endif()
 include(${LIB_DIR}/CMakeLists.txt)
 include(test/CMakeLists.txt)
 
-# Set the VERSION and SOVERSION values
-set_property(TARGET ${TARGET_NAME} PROPERTY VERSION "${LIB_VERSION_STRING}")
-set_property(TARGET ${TARGET_NAME} PROPERTY SOVERSION "${LIB_VERSION_MAJOR}")
 # If the library is a release, strip the target library
 if("${CMAKE_BUILD_TYPE}" STREQUAL release)
   add_custom_command(TARGET ${KERNELDB_TARGET} POST_BUILD
