@@ -225,6 +225,8 @@ public:
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
     std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name, bool resolve_typedefs = false);
     bool scanCodeObject(const std::string& co_file);
+    bool scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName);
+    bool parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel);
     bool hasKernel(const std::string& name);
 private:
     /// Get kernel symbol names from a .hsaco ELF without disassembling (reads .symtab).
@@ -233,7 +235,7 @@ private:
     void ensureKernelLoaded(const std::string& name);
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs);
-    void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap);
+    void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap, const std::string& targetKernel = "");
     parse_mode getLineType(std::string& line);
     std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);
