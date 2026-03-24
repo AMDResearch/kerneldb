@@ -72,7 +72,8 @@ file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
 set_target_properties(${TARGET_LIB} PROPERTIES PUBLIC_HEADER "${KERNELDB_INCLUDE_FILES}")
 include(GNUInstallDirs)
 install(TARGETS ${TARGET_LIB}
-    LIBRARY DESTINATION omniprobe/lib)
+    LIBRARY DESTINATION omniprobe/lib
+    PUBLIC_HEADER DESTINATION omniprobe/include/kerneldb)
 
 
 message(STATUS "==> {Library,include} install dirs: ${CMAKE_INSTALL_PREFIX}/{${CMAKE_INSTALL_LIBDIR},${CMAKE_INSTALL_INCLUDEDIR}/kerneldb}")
