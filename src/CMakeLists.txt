@@ -62,8 +62,6 @@ target_link_libraries(
     stdc++
     stdc++fs
     amd_comgr
-    z
-    zstd
     dwarf
     elf
 )
