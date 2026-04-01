@@ -291,6 +291,7 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 void kernelDB::ensureKernelLoaded(const std::string& name)
 {
     std::string canonical = getKernelName(name);
+    std::cerr << "[KDB] ensureKernelLoaded: canonical='" << canonical.substr(0, 80) << "'" << std::endl;
     std::string hsaco_path, elf_symbol;
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -441,6 +442,7 @@ bool kernelDB::scanCodeObject(const std::string& co_file)
 
 bool kernelDB::scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName)
 {
+    std::cerr << "[KDB] scanCodeObjectForKernel: co=" << co_file << " kernel='" << kernelName.substr(0, 80) << "'" << std::endl;
     std::string strDisassembly;
     // Use targeted disassembly (--disassemble-symbols) to extract only the
     // requested kernel instead of disassembling the entire code object.
@@ -454,15 +456,23 @@ bool kernelDB::scanCodeObjectForKernel(const std::string& co_file, const std::st
     {
         try {
             gotDisasm = getDisassemblyForSymbol(agent_, co_file, sym, strDisassembly);
+        } catch (const std::exception& e) {
+            std::cerr << "[KDB] getDisassemblyForSymbol threw: " << e.what() << std::endl;
+            gotDisasm = false;
         } catch (...) {
+            std::cerr << "[KDB] getDisassemblyForSymbol threw unknown exception" << std::endl;
             gotDisasm = false;
         }
         if (gotDisasm)
+        {
+            std::cerr << "[KDB] disassembly succeeded for symbol '" << sym.substr(0, 80) << "' (" << strDisassembly.size() << " bytes)" << std::endl;
             break;
+        }
         strDisassembly.clear();
     }
     if (!gotDisasm)
     {
+        std::cerr << "[KDB] scanCodeObjectForKernel: no disassembly found" << std::endl;
         return false;
     }
 
@@ -548,6 +558,8 @@ std::string kernelDB::extractKernelName(const std::string& line)
 parse_mode kernelDB::getLineType(std::string& line)
 {
     parse_mode result = BBLOCK;
+    if (line.empty())
+        return result;
     auto it = line.begin();
     if (*it == ':' || line.starts_with(".text:"))
         result = BEGIN;
@@ -576,9 +588,13 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
     std::istringstream in(disassembly);
     std::string line;
     uint64_t base_addr;
-    std::getline(in, line);
+    if (!std::getline(in, line))
+        return;
     while (getLineType(line) != KERNEL)
-        std::getline(in, line);
+    {
+        if (!std::getline(in, line))
+            return;
+    }
     std::string name;
     std::map<std::string, std::set<uint64_t>>::iterator it;
     do
@@ -822,7 +838,13 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                 skip = false;
                 kernel = std::make_unique<CDNAKernel>(demangledName);
                 mit = markers.find(demangledName);
-                assert(mit != markers.end());
+                if (mit == markers.end())
+                {
+                    skip = true;
+                    current_kernel = nullptr;
+                    current_block = nullptr;
+                    break;
+                }
                 current_kernel = kernel.get();
                 mode = BBLOCK;
                 addKernel(std::move(kernel));
