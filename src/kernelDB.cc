@@ -442,7 +442,26 @@ bool kernelDB::scanCodeObject(const std::string& co_file)
 bool kernelDB::scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName)
 {
     std::string strDisassembly;
-    if (!getDisassembly(agent_, co_file, strDisassembly))
+    // Use targeted disassembly (--disassemble-symbols) to extract only the
+    // requested kernel instead of disassembling the entire code object.
+    // Try the FUNC symbol name first, then with .kd suffix (in case
+    // the caller passed a kernel descriptor name).
+    bool gotDisasm = false;
+    std::string funcName = kernelName;
+    if (funcName.size() > 3 && funcName.substr(funcName.size() - 3) == ".kd")
+        funcName = funcName.substr(0, funcName.size() - 3);
+    for (const auto& sym : {funcName, funcName + ".kd"})
+    {
+        try {
+            gotDisasm = getDisassemblyForSymbol(agent_, co_file, sym, strDisassembly);
+        } catch (...) {
+            gotDisasm = false;
+        }
+        if (gotDisasm)
+            break;
+        strDisassembly.clear();
+    }
+    if (!gotDisasm)
     {
         return false;
     }
@@ -1020,16 +1039,22 @@ std::vector<std::string> kernelDB::getKernelNamesFromElf(const std::string& file
         if (sym.st_shndx == SHN_UNDEF)
             continue;
         uint8_t type = ELF64_ST_TYPE(sym.st_info);
-        if (type != STT_FUNC && type != STT_AMDGPU_HSA_KERNEL)
+        bool isCode = (type == STT_FUNC || type == STT_AMDGPU_HSA_KERNEL);
+        bool isObject = (type == STT_OBJECT);
+        if (!isCode && !isObject)
             continue;
-        if (sym.st_shndx != textShndx)
+        if (isCode && sym.st_shndx != textShndx)
             continue;
         if (sym.st_name >= strtabSize)
             continue;
         const char* nameStr = &strtabData[sym.st_name];
         if (!nameStr[0])
             continue;
-        names.push_back(std::string(nameStr));
+        std::string symName(nameStr);
+        // Only keep .kd kernel descriptors from OBJECT symbols
+        if (isObject && (symName.size() < 3 || symName.substr(symName.size() - 3) != ".kd"))
+            continue;
+        names.push_back(symName);
     }
     return names;
 }
