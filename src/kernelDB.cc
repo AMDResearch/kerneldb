@@ -569,7 +569,7 @@ parse_mode kernelDB::getLineType(std::string& line)
         if (*it == ':')
         {
             // It's only a valid kernel if there are no spaces in lines that end with ':'
-            if(line.find_first_of(" ") == std::string::npos || *(--it) == '>')
+            if(line.find_first_of(" ") == std::string::npos || (line.size() > 1 && *(--it) == '>'))
             {
                 if (line.ends_with("<.text>:"))
                     result = BEGIN;
@@ -596,7 +596,8 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
             return;
     }
     std::string name;
-    std::map<std::string, std::set<uint64_t>>::iterator it;
+    std::map<std::string, std::set<uint64_t>>::iterator it = markers.end();
+    bool haveKernel = false;
     do
     {
         parse_mode mode = getLineType(line);
@@ -611,8 +612,9 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
                 it = markers.find(name);
             }
             base_addr = 0;
+            haveKernel = true;
         }
-        else
+        else if (haveKernel)
         {
            std::vector<std::string> tokens;
            split(line, tokens, " ", false);
@@ -621,9 +623,15 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
                std::string addr = tokens[tokens.size() - 1];
                std::vector<std::string> tmp;
                split(addr, tmp, "+", false);
-               assert(tmp.size() == 2);
-               tmp[1].pop_back();
-               it->second.insert(base_addr + std::stoull(tmp[1], nullptr, 16));
+               if (tmp.size() == 2 && !tmp[1].empty())
+               {
+                   tmp[1].pop_back();
+                   try {
+                       it->second.insert(base_addr + std::stoull(tmp[1], nullptr, 16));
+                   } catch (...) {
+                       // malformed address — skip this branch marker
+                   }
+               }
            }
            else if (base_addr == 0 && tokens.size() > 1)
            {
@@ -876,15 +884,14 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                     trim(tokens[0]);
                     if (isBranch(tokens[0]))
                     {
-                        if (current_kernel)
+                        if (current_kernel && block)
                         {
                             current_kernel->addBlock(block_count, std::move(block));
                         }
-                        else
+                        else if (!current_kernel)
                         {
-                            std::cout << "Disassembly parsing error. Processing a branch instruction when there's not a kernel currently defined.\n";
-                            std::cout << line << std::endl;
-                            abort();
+                            current_block = nullptr;
+                            continue;
                         }
                         if (tokens[0].find("s_endpgm") != std::string::npos)
                         {
@@ -948,7 +955,8 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                             current_block = block.get();
                         }
                         inst.block_ = current_block;
-                        current_block->addInstruction(inst);
+                        if (current_block)
+                            current_block->addInstruction(inst);
                         if (inst.inst_ == "s_endpgm")
                         {
                             if (current_kernel && current_block)
