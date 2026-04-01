@@ -775,6 +775,11 @@ bool kernelDB::parseDisassembly(const std::string& text)
 
 bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel)
 {
+    // Normalize the target name so it can be compared against demangled canonical
+    // forms extracted from the disassembly output.  The caller may pass a raw
+    // (mangled) ELF symbol name, so we demangle and canonicalize it here.
+    std::string targetCanonical = getKernelName(demangleName(targetKernel.c_str()));
+
     bool bReturn = true;
     std::istringstream in(text);
     std::string line;
@@ -807,7 +812,7 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                 strKernel = extractKernelName(line);
                 std::string demangledName = demangleName(strKernel.c_str());
                 std::string canonical = getKernelName(demangledName);
-                if (canonical != targetKernel)
+                if (canonical != targetCanonical)
                 {
                     skip = true;
                     current_kernel = nullptr;
@@ -1214,11 +1219,13 @@ void CDNAKernel::getSourceCode(std::vector<std::string>& outputLines)
 
 void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap, const std::string& targetKernel)
 {
+    // Normalize the target so raw ELF symbol names match demangled kernel keys.
+    std::string targetCanonical = targetKernel.empty() ? "" : getKernelName(demangleName(targetKernel.c_str()));
     std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.begin();
     while(it != kernels_.end())
     {
-        if (!targetKernel.empty() && it->first != targetKernel)
+        if (!targetCanonical.empty() && it->first != targetCanonical)
         {
             it++;
             continue;
