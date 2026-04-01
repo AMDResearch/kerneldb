@@ -24,7 +24,7 @@ THE SOFTWARE.
 #include <sstream>
 #include "include/kernelDB.h"
 
-std::vector<std::string> disassembly_params = {"-d ", "--arch-name=amdgcn"};
+std::vector<std::string> disassembly_params = {"-d", "--arch-name=amdgcn"};
 
 void readFileToString(const std::string& filename, std::string& content) {
     std::ifstream file(filename, std::ios::binary);
@@ -92,13 +92,50 @@ bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string&
     return true;
 }
 
+bool getDisassemblyForSymbol(hsa_agent_t agent, const std::string& fileName,
+                             const std::string& symbolName, std::string& out)
+{
+    // Use --disassemble-symbols to extract only the requested kernel.
+    std::vector<std::string> parms = {"--arch-name=amdgcn"};
+    char name[64];
+    memset(name, 0, sizeof(name));
+    hsa_status_t status = hsa_agent_get_info(agent, HSA_AGENT_INFO_NAME, name);
+    if (status != HSA_STATUS_SUCCESS)
+        return false;
+
+    std::stringstream ss;
+    ss << "--mcpu=" << name;
+    parms.push_back(ss.str());
+    parms.push_back("--disassemble-symbols=" + symbolName);
+    parms.push_back(fileName);
+
+    char temp_filename[L_tmpnam];
+    if (tmpnam(temp_filename) == nullptr)
+        throw std::runtime_error("Failed to generate temporary filename");
+
+    if (invokeProgram(disassembler, parms, temp_filename))
+    {
+        readFileToString(temp_filename, out);
+        unlink(temp_filename);
+        return out.length() != 0;
+    }
+    return false;
+}
+
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName) {
-    // Construct the command string
+    // Construct the command string with shell-safe quoting.
+    // Parameters are single-quoted so kernel names containing parentheses,
+    // spaces, or other shell metacharacters are passed through safely.
     std::stringstream command;
     command << programName;
     for (const auto& param : params) {
-        // Basic escaping of parameters (assumes no spaces in params; enhance if needed)
-        command << " " << param;
+        std::string escaped = param;
+        size_t pos = 0;
+        while ((pos = escaped.find('\'', pos)) != std::string::npos) {
+            escaped.replace(pos, 1, "'\\''");
+            pos += 4;
+        }
+        command << " '" << escaped << "'";
     }
     // Redirect stdout to outputFileName
     command << " > " << outputFileName;

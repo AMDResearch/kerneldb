@@ -256,14 +256,12 @@ kernelDB::~kernelDB()
 
 CDNAKernel& kernelDB::getKernel(const std::string& name)
 {
+    ensureKernelLoaded(name);
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(name));
     if (it != kernels_.end())
-    {
         return *(it->second.get());
-    }
-    else
-        throw std::runtime_error(name + " kernel does not exist.");
+    throw std::runtime_error(name + " kernel does not exist.");
 }
 
 
@@ -277,27 +275,51 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
     bool result = true;
     std::unique_lock<std::shared_mutex> lock(mutex_);
     std::string strName = kernel.get()->getName();
-    // std::cout << "Adding kernel \"" << strName << "\"" << std::endl;
-    if (kernels_.find(strName) == kernels_.end())
+    std::string canonical = getKernelName(strName);  // same key form as lazy_kernels_ and getKernel lookup
+    if (kernels_.find(canonical) == kernels_.end())
     {
-        kernels_[strName] = std::move(kernel);
+        kernels_[canonical] = std::move(kernel);
     }
     else
     {
-        // std::cout << "You're adding kernel \"" << strName << "\" which we've seen before. Something may be wrong." << std::endl;
-        kernels_[strName] = std::move(kernel);
+        kernels_[canonical] = std::move(kernel);
         result = false;
     }
     return result;
 }
 
-bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter)
+void kernelDB::ensureKernelLoaded(const std::string& name)
+{
+    std::string canonical = getKernelName(name);
+    std::cerr << "[KDB] ensureKernelLoaded: canonical='" << canonical.substr(0, 80) << "'" << std::endl;
+    std::string hsaco_path, elf_symbol;
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        auto it = lazy_kernels_.find(canonical);
+        if (it == lazy_kernels_.end())
+        {
+            return;
+        }
+        hsaco_path = it->second.hsaco_path;
+        elf_symbol = it->second.elf_symbol;
+    }
+    if (!scanCodeObjectForKernel(hsaco_path, elf_symbol))
+    {
+        return;
+    }
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        lazy_kernels_.erase(canonical);
+    }
+}
+
+bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter, bool lazy)
 {
     bool bReturn = true;
     amd_comgr_data_t executable;
     bool bValidExecutable = false;
     std::vector<std::string> isas = ::kernelDB::getIsaList(agent);
-    std::cout << "Adding " << name << std::endl;
+    std::cout << "Adding " << name << (lazy ? " (lazy)" : "") << std::endl;
 
     if (name.ends_with(".hsaco"))
     {
@@ -320,29 +342,47 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
         }
     }
 
-    if(bValidExecutable && isas.size())
+    if (!bValidExecutable || !isas.size())
     {
-        // Disassemble and parse each code object to discover all kernels
+        bReturn = false;
+        return bReturn;
+    }
+
+    if (lazy)
+    {
+        // Only index: get kernel names from ELF symbol table; no disassembly yet.
         for (const auto& hsaco : file_map_[name])
         {
-            std::string strDisassembly;
-            getDisassembly(agent, hsaco, strDisassembly);
-            parseDisassembly(strDisassembly);
+            std::vector<std::string> rawNames = getKernelNamesFromElf(hsaco);
+            std::unique_lock<std::shared_mutex> lock(mutex_);
+            for (const auto& raw : rawNames)
+            {
+                std::string demangled = demangleName(raw.c_str());
+                std::string canonical = getKernelName(demangled);
+                if (canonical.empty())
+                    continue;
+                lazy_kernels_[canonical] = {hsaco, name, raw};
+            }
         }
-
-        // Then map all kernels to source
-        try
-        {
-            mapDisassemblyToSource(agent, name.c_str());
-        }
-        catch (const std::runtime_error& e)
-        {
-            std::cerr << "Error adding " << name << "\n\t" << e.what() << std::endl;
-            bReturn = false;
-        }
+        return true;
     }
-    else
+
+    // Eager: disassemble and parse each code object, then map to source
+    for (const auto& hsaco : file_map_[name])
+    {
+        std::string strDisassembly;
+        getDisassembly(agent, hsaco, strDisassembly);
+        parseDisassembly(strDisassembly);
+    }
+    try
+    {
+        mapDisassemblyToSource(agent, name.c_str());
+    }
+    catch (const std::runtime_error& e)
+    {
+        std::cerr << "Error adding " << name << "\n\t" << e.what() << std::endl;
         bReturn = false;
+    }
     return bReturn;
 }
 
@@ -400,10 +440,93 @@ bool kernelDB::scanCodeObject(const std::string& co_file)
     return true;
 }
 
+bool kernelDB::scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName)
+{
+    std::cerr << "[KDB] scanCodeObjectForKernel: co=" << co_file << " kernel='" << kernelName.substr(0, 80) << "'" << std::endl;
+    std::string strDisassembly;
+    // Use targeted disassembly (--disassemble-symbols) to extract only the
+    // requested kernel instead of disassembling the entire code object.
+    // Try the FUNC symbol name first, then with .kd suffix (in case
+    // the caller passed a kernel descriptor name).
+    bool gotDisasm = false;
+    std::string funcName = kernelName;
+    if (funcName.size() > 3 && funcName.substr(funcName.size() - 3) == ".kd")
+        funcName = funcName.substr(0, funcName.size() - 3);
+    for (const auto& sym : {funcName, funcName + ".kd"})
+    {
+        try {
+            gotDisasm = getDisassemblyForSymbol(agent_, co_file, sym, strDisassembly);
+        } catch (const std::exception& e) {
+            std::cerr << "[KDB] getDisassemblyForSymbol threw: " << e.what() << std::endl;
+            gotDisasm = false;
+        } catch (...) {
+            std::cerr << "[KDB] getDisassemblyForSymbol threw unknown exception" << std::endl;
+            gotDisasm = false;
+        }
+        if (gotDisasm)
+        {
+            std::cerr << "[KDB] disassembly succeeded for symbol '" << sym.substr(0, 80) << "' (" << strDisassembly.size() << " bytes)" << std::endl;
+            break;
+        }
+        strDisassembly.clear();
+    }
+    if (!gotDisasm)
+    {
+        std::cerr << "[KDB] scanCodeObjectForKernel: no disassembly found" << std::endl;
+        return false;
+    }
+
+    parseDisassemblyForKernel(strDisassembly, kernelName);
+
+    std::map<Dwarf_Addr, SourceLocation> addrMap;
+    buildDwarfAddressMap(co_file.c_str(), 0, 0, addrMap);
+
+    if (!addrMap.empty())
+    {
+        processKernelsWithAddressMap(addrMap, kernelName);
+    }
+
+    // Extract arguments only for the target kernel
+    std::map<std::string, std::vector<KernelArgument>> kernelArgsMap;
+    extractKernelArguments(co_file.c_str(), 0, 0, kernelArgsMap, false);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        for (const auto& entry : kernelArgsMap)
+        {
+            std::string demangledName = demangleName(entry.first.c_str());
+            std::string searchName = getKernelName(demangledName);
+
+            auto it = kernels_.find(searchName);
+            if (it == kernels_.end())
+            {
+                for (auto& k : kernels_)
+                {
+                    if (k.first.compare(0, searchName.length(), searchName) == 0 &&
+                        (k.first.length() == searchName.length() || k.first[searchName.length()] == '('))
+                    {
+                        k.second.get()->setArguments(entry.second);
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                it->second.get()->setArguments(entry.second);
+            }
+        }
+        // Do NOT mark co_file in scanned_code_objects_ — other kernels from this
+        // code object may still need loading later.
+    }
+
+    return true;
+}
+
 bool kernelDB::hasKernel(const std::string& name)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    return kernels_.find(getKernelName(name)) != kernels_.end();
+    std::string key = getKernelName(name);
+    return kernels_.find(key) != kernels_.end() || lazy_kernels_.find(key) != lazy_kernels_.end();
 }
 
 std::string kernelDB::extractKernelName(const std::string& line)
@@ -435,6 +558,8 @@ std::string kernelDB::extractKernelName(const std::string& line)
 parse_mode kernelDB::getLineType(std::string& line)
 {
     parse_mode result = BBLOCK;
+    if (line.empty())
+        return result;
     auto it = line.begin();
     if (*it == ':' || line.starts_with(".text:"))
         result = BEGIN;
@@ -444,7 +569,7 @@ parse_mode kernelDB::getLineType(std::string& line)
         if (*it == ':')
         {
             // It's only a valid kernel if there are no spaces in lines that end with ':'
-            if(line.find_first_of(" ") == std::string::npos || *(--it) == '>')
+            if(line.find_first_of(" ") == std::string::npos || (line.size() > 1 && *(--it) == '>'))
             {
                 if (line.ends_with("<.text>:"))
                     result = BEGIN;
@@ -463,11 +588,16 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
     std::istringstream in(disassembly);
     std::string line;
     uint64_t base_addr;
-    std::getline(in, line);
+    if (!std::getline(in, line))
+        return;
     while (getLineType(line) != KERNEL)
-        std::getline(in, line);
+    {
+        if (!std::getline(in, line))
+            return;
+    }
     std::string name;
-    std::map<std::string, std::set<uint64_t>>::iterator it;
+    std::map<std::string, std::set<uint64_t>>::iterator it = markers.end();
+    bool haveKernel = false;
     do
     {
         parse_mode mode = getLineType(line);
@@ -482,8 +612,9 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
                 it = markers.find(name);
             }
             base_addr = 0;
+            haveKernel = true;
         }
-        else
+        else if (haveKernel)
         {
            std::vector<std::string> tokens;
            split(line, tokens, " ", false);
@@ -492,19 +623,33 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
                std::string addr = tokens[tokens.size() - 1];
                std::vector<std::string> tmp;
                split(addr, tmp, "+", false);
-               assert(tmp.size() == 2);
-               tmp[1].pop_back();
-               it->second.insert(base_addr + std::stoull(tmp[1], nullptr, 16));
+               if (tmp.size() == 2 && !tmp[1].empty())
+               {
+                   tmp[1].pop_back();
+                   try {
+                       it->second.insert(base_addr + std::stoull(tmp[1], nullptr, 16));
+                   } catch (...) {
+                       // malformed address — skip this branch marker
+                   }
+               }
            }
-           else if (base_addr == 0)
+           else if (base_addr == 0 && tokens.size() > 1)
            {
                 size_t i = 1;
-                while (tokens[i].find("//") == std::string::npos)
+                while (i < tokens.size() && tokens[i].find("//") == std::string::npos)
                     i++;
-                std::string strAddress = tokens[++i];
-                // remove the ending colon
-                strAddress.pop_back();
-                base_addr = std::stoull(strAddress, nullptr, 16);
+                if (i + 1 < tokens.size())
+                {
+                    std::string strAddress = tokens[i + 1];
+                    // remove the ending colon
+                    if (!strAddress.empty())
+                        strAddress.pop_back();
+                    try {
+                        base_addr = std::stoull(strAddress, nullptr, 16);
+                    } catch (...) {
+                        base_addr = 0;
+                    }
+                }
            }
         }
     }while(std::getline(in,line));
@@ -660,6 +805,184 @@ bool kernelDB::parseDisassembly(const std::string& text)
     return bReturn;
 }
 
+bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel)
+{
+    // Normalize the target name so it can be compared against demangled canonical
+    // forms extracted from the disassembly output.  The caller may pass a raw
+    // (mangled) ELF symbol name, so we demangle and canonicalize it here.
+    std::string targetCanonical = getKernelName(demangleName(targetKernel.c_str()));
+
+    bool bReturn = true;
+    std::istringstream in(text);
+    std::string line;
+    parse_mode mode = BEGIN;
+    std::string strKernel;
+    uint32_t block_count = 0;
+    std::unique_ptr<CDNAKernel> kernel;
+    CDNAKernel *current_kernel = nullptr;
+    std::unique_ptr<basicBlock> block;
+    basicBlock *current_block = nullptr;
+    std::map<std::string, std::set<uint64_t>> markers;
+    getBlockMarkers(text, markers);
+    std::map<std::string, std::set<uint64_t>>::iterator mit;
+    bool bDoingKernels = false;
+    bool skip = false;  // true when current kernel is not the target
+    while(std::getline(in,line))
+    {
+        bool blockCreated = false;
+        std::vector<std::string> tokens;
+        mode = getLineType(line);
+        switch(mode)
+        {
+            case BEGIN:
+                mode = KERNEL;
+                block_count = 0;
+                break;
+            case KERNEL:
+            {
+                bDoingKernels = true;
+                strKernel = extractKernelName(line);
+                std::string demangledName = demangleName(strKernel.c_str());
+                std::string canonical = getKernelName(demangledName);
+                if (canonical != targetCanonical)
+                {
+                    skip = true;
+                    current_kernel = nullptr;
+                    current_block = nullptr;
+                    break;
+                }
+                skip = false;
+                kernel = std::make_unique<CDNAKernel>(demangledName);
+                mit = markers.find(demangledName);
+                if (mit == markers.end())
+                {
+                    skip = true;
+                    current_kernel = nullptr;
+                    current_block = nullptr;
+                    break;
+                }
+                current_kernel = kernel.get();
+                mode = BBLOCK;
+                addKernel(std::move(kernel));
+                break;
+            }
+            case BBLOCK:
+                if (!bDoingKernels || skip)
+                {
+                    break;
+                }
+                split(line, tokens, " ", false);
+                if (tokens.size())
+                {
+                    if (!current_block)
+                    {
+                        block = std::make_unique<basicBlock>();
+                        block_count++;
+                        current_block = block.get();
+                        blockCreated = true;
+                    }
+                    trim(tokens[0]);
+                    if (isBranch(tokens[0]))
+                    {
+                        if (current_kernel && block)
+                        {
+                            current_kernel->addBlock(block_count, std::move(block));
+                        }
+                        else if (!current_kernel)
+                        {
+                            current_block = nullptr;
+                            continue;
+                        }
+                        if (tokens[0].find("s_endpgm") != std::string::npos)
+                        {
+                            blockCreated = true;
+                            block = std::make_unique<basicBlock>();
+                            block_count++;
+                            current_block = block.get();
+                        }
+                        else
+                        {
+                            current_block = nullptr;
+                            continue;
+                        }
+                    }
+                    std::vector<std::string> inst_tokens;
+                    instruction_t inst;
+
+                    if (tokens.size() > 1 && tokens[0].find("_") != std::string::npos)
+                    {
+                        split(tokens[0], inst_tokens, "_", false);
+                        if (inst_tokens.size() > 2 && (inst_tokens[1] == "load" || inst_tokens[1] == "store"))
+                        {
+                            inst.prefix_ = inst_tokens[0];
+                            inst.type_ = inst_tokens[1];
+                            inst.size_ = inst_tokens[2];
+                        }
+                        inst.inst_ = tokens[0];
+                        inst.disassembly_ = line;
+                        for (size_t i = 1; i < tokens.size() && tokens[i].find("//") == std::string::npos; i++)
+                        {
+                            inst.operands_.push_back(tokens[i]);
+                        }
+                        size_t i = 1;
+                        while (i < tokens.size() && tokens[i].find("//") == std::string::npos)
+                        {
+                            i++;
+                        }
+                        if (i + 1 < tokens.size())
+                        {
+                            std::string strAddress = tokens[i + 1];
+                            if (!strAddress.empty())
+                                strAddress.pop_back();
+                            try {
+                                inst.address_ = std::stoull(strAddress, nullptr, 16);
+                            } catch (...) {
+                                inst.address_ = 0;
+                            }
+                        }
+                        else
+                        {
+                            inst.address_ = 0;
+                        }
+                        if (!blockCreated && mit != markers.end() && (mit->second.find(inst.address_) != mit->second.end()))
+                        {
+                            if (current_block)
+                            {
+                                current_kernel->addBlock(block_count, std::move(block));
+                            }
+                            block = std::make_unique<basicBlock>();
+                            block_count++;
+                            current_block = block.get();
+                        }
+                        inst.block_ = current_block;
+                        if (current_block)
+                            current_block->addInstruction(inst);
+                        if (inst.inst_ == "s_endpgm")
+                        {
+                            if (current_kernel && current_block)
+                            {
+                                current_kernel->addBlock(block_count, std::move(block));
+                                current_block = nullptr;
+                            }
+                            else
+                            {
+                                std::cerr << "Error parsing disassembly - s_endpgm without current kernel or block\n";
+                            }
+                        }
+                    }
+                }
+                break;
+            case BRANCH:
+                current_block = nullptr;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return bReturn;
+}
+
 void kernelDB::getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData ) {
     std::ifstream file(fileName, std::ios::binary);
     if (!file) {
@@ -703,6 +1026,92 @@ void kernelDB::getElfSectionBits(const std::string &fileName, const std::string 
     }
 
     throw std::runtime_error("Section not found: " + sectionName);
+}
+
+// AMDGPU kernel symbol type (STT_LOOS = 10); standard ELF STT_FUNC = 2
+#ifndef STT_AMDGPU_HSA_KERNEL
+#define STT_AMDGPU_HSA_KERNEL 10
+#endif
+
+std::vector<std::string> kernelDB::getKernelNamesFromElf(const std::string& fileName)
+{
+    std::vector<std::string> names;
+    std::ifstream file(fileName, std::ios::binary);
+    if (!file)
+        return names;
+
+    Elf64_Ehdr elfHeader;
+    file.read(reinterpret_cast<char*>(&elfHeader), sizeof(elfHeader));
+    if (file.gcount() != sizeof(elfHeader) || memcmp(elfHeader.e_ident, ELFMAG, SELFMAG) != 0)
+        return names;
+
+    file.seekg(elfHeader.e_shoff, std::ios::beg);
+    std::vector<Elf64_Shdr> sectionHeaders(elfHeader.e_shnum);
+    file.read(reinterpret_cast<char*>(sectionHeaders.data()), elfHeader.e_shnum * sizeof(Elf64_Shdr));
+    if (file.gcount() != static_cast<std::streamsize>(elfHeader.e_shnum * sizeof(Elf64_Shdr)))
+        return names;
+
+    const Elf64_Shdr& shstrtab = sectionHeaders[elfHeader.e_shstrndx];
+    std::vector<char> shstrtabData(shstrtab.sh_size);
+    file.seekg(shstrtab.sh_offset, std::ios::beg);
+    file.read(shstrtabData.data(), shstrtab.sh_size);
+
+    Elf64_Word textShndx = SHN_UNDEF;
+    size_t symtabOffset = 0, symtabSize = 0, strtabOffset = 0, strtabSize = 0;
+
+    for (Elf64_Word i = 0; i < elfHeader.e_shnum; ++i)
+    {
+        std::string secName(&shstrtabData[sectionHeaders[i].sh_name]);
+        if (secName == ".text")
+            textShndx = i;
+        else if (secName == ".symtab")
+        {
+            symtabOffset = sectionHeaders[i].sh_offset;
+            symtabSize = sectionHeaders[i].sh_size;
+        }
+        else if (secName == ".strtab")
+        {
+            strtabOffset = sectionHeaders[i].sh_offset;
+            strtabSize = sectionHeaders[i].sh_size;
+        }
+    }
+
+    if (textShndx == SHN_UNDEF || symtabSize == 0 || strtabSize == 0)
+        return names;
+
+    std::vector<char> strtabData(strtabSize);
+    file.seekg(strtabOffset, std::ios::beg);
+    file.read(strtabData.data(), strtabSize);
+
+    const size_t numSyms = symtabSize / sizeof(Elf64_Sym);
+    file.seekg(symtabOffset, std::ios::beg);
+    for (size_t s = 0; s < numSyms; ++s)
+    {
+        Elf64_Sym sym;
+        file.read(reinterpret_cast<char*>(&sym), sizeof(sym));
+        if (file.gcount() != static_cast<std::streamsize>(sizeof(sym)))
+            break;
+        if (sym.st_shndx == SHN_UNDEF)
+            continue;
+        uint8_t type = ELF64_ST_TYPE(sym.st_info);
+        bool isCode = (type == STT_FUNC || type == STT_AMDGPU_HSA_KERNEL);
+        bool isObject = (type == STT_OBJECT);
+        if (!isCode && !isObject)
+            continue;
+        if (isCode && sym.st_shndx != textShndx)
+            continue;
+        if (sym.st_name >= strtabSize)
+            continue;
+        const char* nameStr = &strtabData[sym.st_name];
+        if (!nameStr[0])
+            continue;
+        std::string symName(nameStr);
+        // Only keep .kd kernel descriptors from OBJECT symbols
+        if (isObject && (symName.size() < 3 || symName.substr(symName.size() - 3) != ".kd"))
+            continue;
+        names.push_back(symName);
+    }
+    return names;
 }
 
 //using namespace llvm;
@@ -858,12 +1267,19 @@ void CDNAKernel::getSourceCode(std::vector<std::string>& outputLines)
 }
 
 
-void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap)
+void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap, const std::string& targetKernel)
 {
+    // Normalize the target so raw ELF symbol names match demangled kernel keys.
+    std::string targetCanonical = targetKernel.empty() ? "" : getKernelName(demangleName(targetKernel.c_str()));
     std::unique_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.begin();
     while(it != kernels_.end())
     {
+        if (!targetCanonical.empty() && it->first != targetCanonical)
+        {
+            it++;
+            continue;
+        }
         const auto& blocks = it->second.get()->getBasicBlocks();
         for (const auto& block : blocks)
         {
@@ -889,7 +1305,6 @@ void kernelDB::processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLoc
                     instruction.block_ = inst.block_ = block.get();
                     instruction.path_id_ = inst.path_id_ = MISSING_SOURCE_INFO;
                     it->second.get()->addLine(MISSING_SOURCE_INFO, inst);
-                    //std::cout << "No match for " << std::hex << "0x" << instruction.address_ << std::dec << std::endl;
                 }
             }
         }
@@ -962,6 +1377,7 @@ void kernelDB::mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath
 
 std::string kernelDB::getFileName(const std::string& kernel, size_t index)
 {
+    ensureKernelLoaded(kernel);
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(kernel));
     if (it != kernels_.end())
@@ -977,6 +1393,7 @@ std::string kernelDB::getFileName(const std::string& kernel, size_t index)
 
 std::vector<instruction_t> kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line, const std::string& match)
 {
+    ensureKernelLoaded(kernel_name);
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(kernel_name));
     if (it != kernels_.end())
@@ -987,6 +1404,7 @@ std::vector<instruction_t> kernelDB::getInstructionsForLine(const std::string& k
 
 const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::string& kernel_name, uint32_t line)
 {
+    ensureKernelLoaded(kernel_name);
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(kernel_name));
     if (it != kernels_.end())
@@ -998,30 +1416,35 @@ const std::vector<instruction_t>& kernelDB::getInstructionsForLine(const std::st
 void kernelDB::getKernels(std::vector<std::string>& out)
 {
     std::shared_lock<std::shared_mutex> lock(mutex_);
-    auto it = kernels_.begin();
-    while (it != kernels_.end())
-    {
-        out.push_back(it->first);
-        it++;
-    }
+    for (const auto& p : kernels_)
+        out.push_back(p.first);
+    for (const auto& p : lazy_kernels_)
+        out.push_back(p.first);
 }
 
 void kernelDB::getKernelLines(const std::string& kernel, std::vector<uint32_t>& out)
 {
+    ensureKernelLoaded(kernel);
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(kernel));
     if (it != kernels_.end())
-    {
-       it->second.get()->getLineNumbers(out);
-    }
+        it->second.get()->getLineNumbers(out);
 }
 
 std::vector<KernelArgument> kernelDB::getKernelArguments(const std::string& kernel_name, bool resolve_typedefs)
 {
-    // If we need to resolve typedefs and haven't done so yet, re-extract with resolution
-    if (resolve_typedefs) {
-        extractArgumentsFromDwarf(agent_, fileName_.c_str(), true);
+    std::string logical_file;
+    {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        auto lit = lazy_kernels_.find(getKernelName(kernel_name));
+        if (lit != lazy_kernels_.end())
+            logical_file = lit->second.logical_file;
     }
+    ensureKernelLoaded(kernel_name);
+    if (resolve_typedefs && !logical_file.empty())
+        extractArgumentsFromDwarf(agent_, logical_file.c_str(), true);
+    else if (resolve_typedefs && !fileName_.empty())
+        extractArgumentsFromDwarf(agent_, fileName_.c_str(), true);
 
     std::shared_lock<std::shared_mutex> lock(mutex_);
     auto it = kernels_.find(getKernelName(kernel_name));

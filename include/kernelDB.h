@@ -113,6 +113,7 @@ struct KernelArgument {
 bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_length, std::map<Dwarf_Addr, SourceLocation>& addressMap);
 SourceLocation getSourceLocation(const std::map<Dwarf_Addr, SourceLocation>& addrMap, Dwarf_Addr addr);
 __attribute__((visibility("default"))) bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string& out);
+bool getDisassemblyForSymbol(hsa_agent_t agent, const std::string& fileName, const std::string& symbolName, std::string& out);
 bool invokeProgram(const std::string& programName, const std::vector<std::string>& params, const std::string& outputFileName);
 std::string create_temp_file_segment(const std::string& filename, std::streamoff offset, std::streamsize length);
 __attribute__((visibility("default"))) std::vector<std::string> extractCodeObjects(hsa_agent_t agent, const std::string& fileName);
@@ -210,7 +211,7 @@ public:
     ~kernelDB();
     bool getBasicBlocks(const std::string& name, std::vector<basicBlock>&);
     CDNAKernel& getKernel(const std::string& name);
-    bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter);
+    bool addFile(const std::string& name, hsa_agent_t agent, const std::string& strFilter, bool lazy = false);
     bool parseDisassembly(const std::string& text);
     void mapDisassemblyToSource(hsa_agent_t agent, const char *elfFilePath);
     bool addKernel(std::unique_ptr<CDNAKernel> kernel);
@@ -225,11 +226,17 @@ public:
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
     std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name, bool resolve_typedefs = false);
     bool scanCodeObject(const std::string& co_file);
+    bool scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName);
+    bool parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel);
     bool hasKernel(const std::string& name);
 private:
+    /// Get kernel symbol names from a .hsaco ELF without disassembling (reads .symtab).
+    static std::vector<std::string> getKernelNamesFromElf(const std::string& fileName);
+    /// If kernel is lazy-loaded, disassemble its code object and fill kernels_; then remove from lazy set.
+    void ensureKernelLoaded(const std::string& name);
     void buildLineMap(size_t offset, size_t hsaco_length, const char *elfFilePath);
     void extractArgumentsFromDwarf(hsa_agent_t agent, const char *elfFilePath, bool resolve_typedefs);
-    void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap);
+    void processKernelsWithAddressMap(const std::map<Dwarf_Addr, SourceLocation>& addrMap, const std::string& targetKernel = "");
     parse_mode getLineType(std::string& line);
     std::string extractKernelName(const std::string& line);
     static bool isBranch(const std::string& instruction);
@@ -240,6 +247,13 @@ private:
     std::string fileName_;
     std::map<std::string, std::vector<std::string>> file_map_;
     std::set<std::string> scanned_code_objects_;
+    struct LazyKernelEntry {
+        std::string hsaco_path;
+        std::string logical_file;
+        std::string elf_symbol;  // raw (mangled) ELF symbol name for --disassemble-symbols
+    };
+    /// Lazy-loaded kernels: canonical name -> entry. Filled by addFile(..., lazy=true).
+    std::map<std::string, LazyKernelEntry> lazy_kernels_;
     std::shared_mutex mutex_;
 };
 
