@@ -625,15 +625,23 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
                tmp[1].pop_back();
                it->second.insert(base_addr + std::stoull(tmp[1], nullptr, 16));
            }
-           else if (base_addr == 0)
+           else if (base_addr == 0 && tokens.size() > 1)
            {
                 size_t i = 1;
-                while (tokens[i].find("//") == std::string::npos)
+                while (i < tokens.size() && tokens[i].find("//") == std::string::npos)
                     i++;
-                std::string strAddress = tokens[++i];
-                // remove the ending colon
-                strAddress.pop_back();
-                base_addr = std::stoull(strAddress, nullptr, 16);
+                if (i + 1 < tokens.size())
+                {
+                    std::string strAddress = tokens[i + 1];
+                    // remove the ending colon
+                    if (!strAddress.empty())
+                        strAddress.pop_back();
+                    try {
+                        base_addr = std::stoull(strAddress, nullptr, 16);
+                    } catch (...) {
+                        base_addr = 0;
+                    }
+                }
            }
         }
     }while(std::getline(in,line));
@@ -910,13 +918,25 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                             inst.operands_.push_back(tokens[i]);
                         }
                         size_t i = 1;
-                        while (tokens[i].find("//") == std::string::npos)
+                        while (i < tokens.size() && tokens[i].find("//") == std::string::npos)
                         {
                             i++;
                         }
-                        std::string strAddress = tokens[++i];
-                        strAddress.pop_back();
-                        inst.address_ = std::stoull(strAddress, nullptr, 16);
+                        if (i + 1 < tokens.size())
+                        {
+                            std::string strAddress = tokens[i + 1];
+                            if (!strAddress.empty())
+                                strAddress.pop_back();
+                            try {
+                                inst.address_ = std::stoull(strAddress, nullptr, 16);
+                            } catch (...) {
+                                inst.address_ = 0;
+                            }
+                        }
+                        else
+                        {
+                            inst.address_ = 0;
+                        }
                         if (!blockCreated && mit != markers.end() && (mit->second.find(inst.address_) != mit->second.end()))
                         {
                             if (current_block)
