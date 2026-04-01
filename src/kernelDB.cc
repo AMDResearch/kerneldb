@@ -291,7 +291,7 @@ bool kernelDB::addKernel(std::unique_ptr<CDNAKernel> kernel)
 void kernelDB::ensureKernelLoaded(const std::string& name)
 {
     std::string canonical = getKernelName(name);
-    std::string hsaco_path, logical_file;
+    std::string hsaco_path, elf_symbol;
     {
         std::shared_lock<std::shared_mutex> lock(mutex_);
         auto it = lazy_kernels_.find(canonical);
@@ -299,10 +299,10 @@ void kernelDB::ensureKernelLoaded(const std::string& name)
         {
             return;
         }
-        hsaco_path = it->second.first;
-        logical_file = it->second.second;
+        hsaco_path = it->second.hsaco_path;
+        elf_symbol = it->second.elf_symbol;
     }
-    if (!scanCodeObjectForKernel(hsaco_path, canonical))
+    if (!scanCodeObjectForKernel(hsaco_path, elf_symbol))
     {
         return;
     }
@@ -360,7 +360,7 @@ bool kernelDB::addFile(const std::string& name, hsa_agent_t agent, const std::st
                 std::string canonical = getKernelName(demangled);
                 if (canonical.empty())
                     continue;
-                lazy_kernels_[canonical] = {hsaco, name};
+                lazy_kernels_[canonical] = {hsaco, name, raw};
             }
         }
         return true;
@@ -1381,7 +1381,7 @@ std::vector<KernelArgument> kernelDB::getKernelArguments(const std::string& kern
         std::shared_lock<std::shared_mutex> lock(mutex_);
         auto lit = lazy_kernels_.find(getKernelName(kernel_name));
         if (lit != lazy_kernels_.end())
-            logical_file = lit->second.second;
+            logical_file = lit->second.logical_file;
     }
     ensureKernelLoaded(kernel_name);
     if (resolve_typedefs && !logical_file.empty())

@@ -247,8 +247,13 @@ private:
     std::string fileName_;
     std::map<std::string, std::vector<std::string>> file_map_;
     std::set<std::string> scanned_code_objects_;
-    /// Lazy-loaded kernels: name -> (hsaco_path, logical_file_name). Filled by addFile(..., lazy=true).
-    std::map<std::string, std::pair<std::string, std::string>> lazy_kernels_;
+    struct LazyKernelEntry {
+        std::string hsaco_path;
+        std::string logical_file;
+        std::string elf_symbol;  // raw (mangled) ELF symbol name for --disassemble-symbols
+    };
+    /// Lazy-loaded kernels: canonical name -> entry. Filled by addFile(..., lazy=true).
+    std::map<std::string, LazyKernelEntry> lazy_kernels_;
     std::shared_mutex mutex_;
 };
 
