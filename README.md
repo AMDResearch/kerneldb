@@ -1,144 +1,112 @@
-# kerneldb
-This library exposes a C++ class which can be used for querying data within CDNA kernel implementations. kernelDB is initially
-implemented to support memory access efficiency analysis as part of the feature-set of omniprobe, from AMD research.
+# KernelDB
 
-Omniprobe provides intra-kernel observation by injecting code at compile time which causes the instrumented kernel to emit "messages"
-to host code. The instrumented code relies on a buffered I/O capability provided by the dh_comms library implemented as an adjacent project
-to Omniprobe.
+A library for querying data within AMD CDNA kernel binaries. KernelDB loads HSACO and HIP fat binary files, disassembles the kernels, and uses DWARF debug info to map source lines to ISA instructions.
 
-Memory access inefficiencies are a common source of performance bottlenecks in GPU kernels. Omniprobe can inject instrumentation which
-will cause the kernel to emit memory traces which can be analyzed for such memory access inefficiencies. But Omniprobe instrumentation occurs at the IR
-level in LLVM, and many optimizations may occur downstream from where the Omniprobe instrumentation occurs. This implicates how performance
-analysis is done. For example, code optimizations for loads routinely gang together individual loads into dwordx4 sized loads. Such optimizations
-implicate trace analysis semantics. So understanding how the loads/stores were optimized is a critical aspect of interpreting the memory traces being
-emitted by the instrumented kernel.
+Use it to inspect what the compiler actually emitted for a given line of your kernel — loads, stores, ALU ops, and how they were optimized.
 
-Omniprobe messages include a source line number which can be used to identify precisely where various instrumented phenomena are occuring
-in the kernel source. kernelDB provides a service for Omniprobe message handlers (i.e. host codes that consume and analyze message streams
-from instrumented kernels), which allows message handlers to dereference from the source line in a message to the fully optimized load/store ISA.
-
-kernelDB works by loading hsaco and/or HIP fat binary files and disassembling the CDNA kernels therein. Using the DWARF info contained within
-the code objects, kernelDB constructs a map for each kernel which connects source lines to load/store instructions. kernelDB exposes an interface by
-which callers can submit a source line number for a kernel and receive back a vector of instruction_t structures containing detailed information
-about every load/store operation at that line in the code.
-## Usage
-To use kernelDB, simply create an instance of the kernelDB class, providing an hsa_agent_t and a std::string& of the file name containing the kernels you want
-load. If the file name is "", kernelDB will look inside the running process and all associated shared libraries for hip fat binary bundles and load any kernels
-it finds there. kernelDB can handle both fat binaries as well as stand alone code objects (e.g. hsaco files)
-
-Once a kernelDB instance has been created, data regarding all load/store instructions can be queried by providing the kernel name of interest, and the line number
-you're interested in.
-
-Under the test directory there is a small test program (kdbtest) that exercises the API and can serve as an example of one way to use the api.
-```c++
-#include <iostream>
-#include <string>
-#include "inc/kernelDB.h"
-
-int main(int argc, char **argv)
-{
-    hsa_init();
-    if (argc > 1)
-    {
-        std::string str(argv[1]);
-        hsa_agent_t agent;
-        if(hsa_iterate_agents ([](hsa_agent_t agent, void *data){
-                    hsa_agent_t *this_agent  = reinterpret_cast<hsa_agent_t *>(data);
-                    *this_agent = agent;
-                    return HSA_STATUS_SUCCESS;
-                }, reinterpret_cast<void *>(&agent))== HSA_STATUS_SUCCESS)
-        {
-            kernelDB::kernelDB test(agent,str);
-            std::vector<std::string> kernels;
-            std::vector<uint32_t> lines;
-            test.getKernels(kernels);
-            for (auto kernel : kernels)
-            {
-                std::vector<uint32_t> lines;
-                test.getKernelLines(kernel, lines);
-                for (auto& line : lines)
-                {
-                    std::cout << "Line for " << kernel << " " << line << std::endl;
-                    auto inst = test.getInstructionsForLine(kernel, line);
-                    for (auto item : inst)
-                    {
-                        std::cout << "Disassembly: " << item.disassembly_ << std::endl;
-                    }
-                }
-            }
-        }
-    }
-    else
-        std::cout << "Usage: kdbtest <hsaco or HIP binary to test>\n";
-}
-```
-## Building
-
-### Building C++ Library Only
-
-kernelDB has a dependency on an llvm environment in order to build. For now, the best one to use is the rocm-llvm-dev package. It may not be installed by default so you may need to install it.
-Alternatively, you can use the Triton llvm that can typically be found somewhere under here: ~/.triton/llvm. To point the build at a specific llvm install, do the following:
-```
-cd build
-cmake -DCMAKE_BUILD_TYPE=[Release|Debug] -DCMAKE_INSTALL_PREFIX=~/.local ..
-make && make install
-```
-The above commands will build libkernelDB64.so and copy it to ${CMAKE_INSTALL_PREFIX}/lib while copying the kerneldb include files to ${CMAKE_INSTALL_PREFIX}/include. If you omit the definition of CMAKE_INSTALL_PREFIX, it defaults to /usr/local.
-
-### Installing with Python API
-
-You can install kernelDB with Python bindings directly from git:
+## Install
 
 ```bash
 pip install git+https://github.com/AMDResearch/kerneldb.git
 ```
 
-Or install from a local clone:
+Or from a local clone:
 
 ```bash
 git clone https://github.com/AMDResearch/kerneldb.git
 cd kerneldb
-pip install .
-```
-
-For development with editable install:
-
-```bash
 pip install -e .
 ```
 
-This will:
-1. Build the C++ library using CMake
-2. Install the Python package with bindings
-3. Make both C++ and Python APIs available
+This builds the C++ library with CMake and installs the Python bindings.
 
 ## Python API
-
-kernelDB now includes Python bindings for easier integration with Python-based tools and workflows.
-
-### Quick Example
 
 ```python
 from kerneldb import KernelDB
 
-# Analyze a HIP binary or HSACO file
 kdb = KernelDB("my_kernel.hsaco")
 
-# Get all kernels
 for kernel_name in kdb.get_kernels():
     kernel = kdb.get_kernel(kernel_name)
 
-    # Get source lines with instructions
-    lines = kdb.get_kernel_lines(kernel_name)
-
-    # Get instructions for a specific line
-    for line in lines:
+    # Source lines that map to instructions
+    for line in kdb.get_kernel_lines(kernel_name):
         instructions = kdb.get_instructions_for_line(kernel_name, line)
         for inst in instructions:
             print(f"[{inst.line}:{inst.column}] {inst.disassembly}")
 
-    # Filter for load/store operations
-    mem_ops = kdb.get_instructions_for_line(kernel_name, line, ".*(load|store).*")
+    # Filter for memory operations
+    for line in kdb.get_kernel_lines(kernel_name):
+        mem_ops = kdb.get_instructions_for_line(kernel_name, line, ".*(load|store).*")
 ```
 
-See the `examples/` directory for complete examples.
+### Kernel arguments
+
+KernelDB extracts kernel argument metadata from DWARF info, including nested structs and typedef resolution:
+
+```python
+args = kdb.get_kernel_arguments(kernel_name)
+for arg in args:
+    print(f"{arg.name}: {arg.type_name} ({arg.size} bytes)")
+
+# Resolve typedefs to underlying types
+args = kdb.get_kernel_arguments(kernel_name, resolve_typedefs=True)
+```
+
+### Kernel wrapper
+
+The `Kernel` object provides convenient properties:
+
+```python
+kernel = kdb.get_kernel(kernel_name)
+kernel.name          # kernel name/signature
+kernel.lines         # source line numbers
+kernel.assembly      # full disassembly as list of strings
+kernel.files         # source files referenced
+kernel.arguments     # kernel arguments from DWARF
+kernel.get_basic_blocks()
+kernel.get_instructions_for_line(line, filter_pattern=None)
+```
+
+See the `examples/` directory for complete runnable examples.
+
+## Building the C++ library only
+
+KernelDB depends on LLVM for disassembly. Use `rocm-llvm-dev` or the Triton LLVM (typically under `~/.triton/llvm`):
+
+```bash
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/.local ..
+make && make install
+```
+
+This installs `libkernelDB64.so` to `${CMAKE_INSTALL_PREFIX}/lib` and headers to `${CMAKE_INSTALL_PREFIX}/include`.
+
+## C++ API
+
+```c++
+#include "inc/kernelDB.h"
+
+hsa_init();
+hsa_agent_t agent = /* get a GPU agent */;
+kernelDB::kernelDB kdb(agent, "my_kernel.hsaco");
+
+std::vector<std::string> kernels;
+kdb.getKernels(kernels);
+
+for (auto& kernel : kernels) {
+    std::vector<uint32_t> lines;
+    kdb.getKernelLines(kernel, lines);
+    for (auto line : lines) {
+        auto instructions = kdb.getInstructionsForLine(kernel, line);
+        for (auto& inst : instructions) {
+            std::cout << inst.disassembly_ << std::endl;
+        }
+    }
+}
+```
+
+## License
+
+MIT
