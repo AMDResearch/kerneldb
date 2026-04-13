@@ -226,10 +226,10 @@ public:
     static void getElfSectionBits(const std::string &fileName, const std::string &sectionName, size_t& offset, std::vector<uint8_t>& sectionData );
     std::vector<KernelArgument> getKernelArguments(const std::string& kernel_name, bool resolve_typedefs = false);
     bool scanCodeObject(const std::string& co_file);
-    bool scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName);
-    bool parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel);
     bool hasKernel(const std::string& name);
 private:
+    bool scanCodeObjectForKernel(const std::string& co_file, const std::string& kernelName);
+    bool parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel);
     /// Get kernel symbol names from a .hsaco ELF without disassembling (reads .symtab).
     static std::vector<std::string> getKernelNamesFromElf(const std::string& fileName);
     /// If kernel is lazy-loaded, disassemble its code object and fill kernels_; then remove from lazy set.

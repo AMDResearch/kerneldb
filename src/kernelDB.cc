@@ -318,8 +318,10 @@ void kernelDB::ensureKernelLoaded(const std::string& name)
 
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        if (ok)
-            lazy_kernels_.erase(canonical);
+        // Always remove from lazy_kernels_: on success the kernel is now in
+        // kernels_; on failure we avoid retrying a doomed disassembly on every
+        // subsequent getKernel() call.
+        lazy_kernels_.erase(canonical);
         loading_kernels_.erase(canonical);
     }
     loading_cv_.notify_all();
@@ -661,159 +663,17 @@ void kernelDB::getBlockMarkers(const std::string& disassembly, std::map<std::str
 
 bool kernelDB::parseDisassembly(const std::string& text)
 {
-    bool bReturn = true;
-    std::istringstream in(text);
-    std::string line;
-    parse_mode mode = BEGIN;
-    std::string strKernel;
-    uint32_t block_count = 0;
-    std::unique_ptr<CDNAKernel> kernel;
-    CDNAKernel *current_kernel = nullptr;
-    std::unique_ptr<basicBlock> block;
-    basicBlock *current_block = nullptr;
-    std::map<std::string, std::set<uint64_t>> markers;
-    getBlockMarkers(text, markers);
-    //std::cout << "Found " << markers.size() << " in getBlockMarkers";
-    std::map<std::string, std::set<uint64_t>>::iterator mit;
-    bool bDoingKernels = false;
-    while(std::getline(in,line))
-    {
-        bool blockCreated = false;
-        std::vector<std::string> tokens;
-        mode = getLineType(line);
-        switch(mode)
-        {
-            case BEGIN:
-                mode = KERNEL;
-                block_count = 0;
-                break;
-            case KERNEL:
-                bDoingKernels = true;
-                strKernel = extractKernelName(line);
-                //strKernel = line.substr(0, line.length() - 1);
-                kernel = std::make_unique<CDNAKernel>(demangleName(strKernel.c_str()));
-                mit = markers.find(demangleName(strKernel.c_str()));
-                assert(mit != markers.end());
-                current_kernel = kernel.get();
-                mode=BBLOCK;
-                addKernel(std::move(kernel));
-
-                break;
-            case BBLOCK:
-                if (!bDoingKernels)
-                    break;
-                split(line, tokens, " ", false);
-                if (tokens.size())
-                {
-                    if (!current_block)
-                    {
-                        //std::cout << "Starting a new block:\n\t" << line << std::endl;
-                        block = std::make_unique<basicBlock>();
-                        block_count++;
-                        current_block = block.get();
-                        blockCreated = true;
-                    }
-                    trim(tokens[0]);
-                    if (isBranch(tokens[0]))
-                    {
-                        if (current_kernel)
-                            current_kernel->addBlock(block_count, std::move(block));
-                        else
-                        {
-                            std::cout << "Disassembly parsing error. Processing a branch instruction when there's not a kernel currently defined.\n";
-                            std::cout << line << std::endl;
-                            abort();
-                        }
-                        if (tokens[0].find("s_endpgm") != std::string::npos)
-                        {
-                            blockCreated = true;
-                          //  std::cout << "New Block at endpgm\n\t" << line << std::endl;
-                            block = std::make_unique<basicBlock>();
-                            block_count++;
-                            current_block = block.get();
-                            // Going to let this drop down to add the s_endpgrm instruction to the block.
-                            // This is the only branch instruction we include
-                            // This should always be the last block and last instruction in the kernel
-                        }
-                        else
-                        {
-                            current_block = nullptr;
-                            continue;
-                        }
-                    }
-                    std::vector<std::string> inst_tokens;
-                    instruction_t inst;
-
-                    // If there is more than one token and the first token contains underscores that means it's an instruction line
-                    if (tokens.size() > 1 && tokens[0].find("_") != std::string::npos)
-                    {
-                        split(tokens[0], inst_tokens, "_", false);
-                        if (inst_tokens.size() > 2 && (inst_tokens[1] == "load" || inst_tokens[1] == "store"))
-                        {
-                            inst.prefix_ = inst_tokens[0];
-                            inst.type_ = inst_tokens[1];
-                            inst.size_ = inst_tokens[2];
-                        }
-                        inst.inst_ = tokens[0];
-                        inst.disassembly_ = line;
-                        for (size_t i = 1; i < tokens.size() && tokens[i].find("//") == std::string::npos; i++)
-                            inst.operands_.push_back(tokens[i]);
-                        size_t i = 1;
-                        while (tokens[i].find("//") == std::string::npos)
-                            i++;
-                        std::string strAddress = tokens[++i];
-                        // remove the ending colon
-                        strAddress.pop_back();
-                        inst.address_ = std::stoull(strAddress, nullptr, 16);
-                        if (!blockCreated && mit != markers.end() && (mit->second.find(inst.address_) != mit->second.end()))
-                        {
-                            // This is the first line of a new block
-                            // So add the current block and create a new one
-                            // Not all blocks end in branches, so when we come to
-                            // an address identified as the target of a conditional branch
-                            // we don't care if the current block ends with a branch instruction
-                            // we just save it and create a new one.
-                            //std::cout << "Starting block at " << strAddress << std::endl;
-                            if (current_block)
-                                current_kernel->addBlock(block_count, std::move(block));
-                            block = std::make_unique<basicBlock>();
-                            block_count++;
-                            current_block = block.get();
-                        }
-                        inst.block_ = current_block;
-                        current_block->addInstruction(inst);
-                        if (inst.inst_ == "s_endpgm")
-                        {
-                            if (current_kernel && current_block)
-                            {
-                                current_kernel->addBlock(block_count, std::move(block));
-                                current_block = nullptr;
-                            }
-                            else
-                                std::cerr << "Error parsing disassembly - s_endpgm without current kernel or block\n";
-                        }
-                    }
-                }
-                break;
-            case BRANCH:
-                current_block = nullptr;
-                break;
-            default:
-                break;
-        }
-    }
-
-    std::cout << "Marker Count: " << markers.size() << " Kernel Count: " << kernels_.size() << std::endl;
-
-    return bReturn;
+    return parseDisassemblyForKernel(text, "");
 }
 
 bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::string& targetKernel)
 {
-    // Normalize the target name so it can be compared against demangled canonical
-    // forms extracted from the disassembly output.  The caller may pass a raw
-    // (mangled) ELF symbol name, so we demangle and canonicalize it here.
-    std::string targetCanonical = getKernelName(demangleName(targetKernel.c_str()));
+    // When targetKernel is non-empty, only parse that kernel and skip others.
+    // When empty, parse all kernels (full disassembly mode).
+    const bool filterByKernel = !targetKernel.empty();
+    std::string targetCanonical;
+    if (filterByKernel)
+        targetCanonical = getKernelName(demangleName(targetKernel.c_str()));
 
     bool bReturn = true;
     std::istringstream in(text);
@@ -829,7 +689,7 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
     getBlockMarkers(text, markers);
     std::map<std::string, std::set<uint64_t>>::iterator mit;
     bool bDoingKernels = false;
-    bool skip = false;  // true when current kernel is not the target
+    bool skip = false;
     while(std::getline(in,line))
     {
         bool blockCreated = false;
@@ -847,7 +707,7 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                 strKernel = extractKernelName(line);
                 std::string demangledName = demangleName(strKernel.c_str());
                 std::string canonical = getKernelName(demangledName);
-                if (canonical != targetCanonical)
+                if (filterByKernel && canonical != targetCanonical)
                 {
                     skip = true;
                     current_kernel = nullptr;
@@ -871,9 +731,7 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
             }
             case BBLOCK:
                 if (!bDoingKernels || skip)
-                {
                     break;
-                }
                 split(line, tokens, " ", false);
                 if (tokens.size())
                 {
@@ -924,14 +782,10 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                         inst.inst_ = tokens[0];
                         inst.disassembly_ = line;
                         for (size_t i = 1; i < tokens.size() && tokens[i].find("//") == std::string::npos; i++)
-                        {
                             inst.operands_.push_back(tokens[i]);
-                        }
                         size_t i = 1;
                         while (i < tokens.size() && tokens[i].find("//") == std::string::npos)
-                        {
                             i++;
-                        }
                         if (i + 1 < tokens.size())
                         {
                             std::string strAddress = tokens[i + 1];
@@ -950,9 +804,7 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                         if (!blockCreated && mit != markers.end() && (mit->second.find(inst.address_) != mit->second.end()))
                         {
                             if (current_block)
-                            {
                                 current_kernel->addBlock(block_count, std::move(block));
-                            }
                             block = std::make_unique<basicBlock>();
                             block_count++;
                             current_block = block.get();
@@ -968,9 +820,7 @@ bool kernelDB::parseDisassemblyForKernel(const std::string& text, const std::str
                                 current_block = nullptr;
                             }
                             else
-                            {
                                 std::cerr << "Error parsing disassembly - s_endpgm without current kernel or block\n";
-                            }
                         }
                     }
                 }
