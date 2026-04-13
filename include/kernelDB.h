@@ -53,6 +53,7 @@ THE SOFTWARE.
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <utility>
 #include <shared_mutex>
 #include <filesystem>
@@ -256,7 +257,8 @@ private:
     std::map<std::string, LazyKernelEntry> lazy_kernels_;
     /// Kernels currently being loaded — prevents concurrent disassembly of the same kernel.
     std::set<std::string> loading_kernels_;
-    std::condition_variable_any loading_cv_;
+    std::mutex loading_mutex_;
+    std::condition_variable loading_cv_;
     std::shared_mutex mutex_;
 };
 

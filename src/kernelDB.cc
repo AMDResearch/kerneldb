@@ -292,36 +292,39 @@ void kernelDB::ensureKernelLoaded(const std::string& name)
 {
     std::string canonical = getKernelName(name);
     std::string hsaco_path, elf_symbol;
-    {
-        std::unique_lock<std::shared_mutex> lock(mutex_);
 
-        // If another thread already loaded this kernel, nothing to do.
-        auto it = lazy_kernels_.find(canonical);
-        if (it == lazy_kernels_.end())
-            return;
+    // Use loading_mutex_ to serialize the check-and-claim of loading_kernels_.
+    {
+        std::unique_lock<std::mutex> lk(loading_mutex_);
 
         // If another thread is currently loading this kernel, wait for it.
         while (loading_kernels_.count(canonical))
-            loading_cv_.wait(lock);
+            loading_cv_.wait(lk);
 
-        // Re-check: the other thread may have finished loading it.
-        it = lazy_kernels_.find(canonical);
-        if (it == lazy_kernels_.end())
-            return;
+        // Check lazy_kernels_ under shared_mutex.
+        {
+            std::shared_lock<std::shared_mutex> rlock(mutex_);
+            auto it = lazy_kernels_.find(canonical);
+            if (it == lazy_kernels_.end())
+                return;  // Already loaded (or was never lazy).
+            hsaco_path = it->second.hsaco_path;
+            elf_symbol = it->second.elf_symbol;
+        }
 
-        hsaco_path = it->second.hsaco_path;
-        elf_symbol = it->second.elf_symbol;
         loading_kernels_.insert(canonical);
     }
 
     bool ok = scanCodeObjectForKernel(hsaco_path, elf_symbol);
 
     {
-        std::unique_lock<std::shared_mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> wlock(mutex_);
         // Always remove from lazy_kernels_: on success the kernel is now in
         // kernels_; on failure we avoid retrying a doomed disassembly on every
         // subsequent getKernel() call.
         lazy_kernels_.erase(canonical);
+    }
+    {
+        std::lock_guard<std::mutex> lk(loading_mutex_);
         loading_kernels_.erase(canonical);
     }
     loading_cv_.notify_all();
