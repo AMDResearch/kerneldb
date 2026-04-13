@@ -72,19 +72,19 @@ bool getDisassembly(hsa_agent_t agent, const std::string& fileName, std::string&
         ss << "--mcpu=" << name;
         parms.push_back(ss.str());
         parms.push_back(fileName);
-         // Create a temporary file using tmpnam (note: tmpnam is not the most secure option)
-        char temp_filename[L_tmpnam];
-        if (tmpnam(temp_filename) == nullptr) 
-            throw std::runtime_error("Failed to generate temporary filename");
-        else if (invokeProgram(disassembler, parms, temp_filename))
+        char temp_template[] = "/tmp/kdb_dis_XXXXXX";
+        int fd = mkstemp(temp_template);
+        if (fd < 0)
+            throw std::runtime_error("Failed to create temporary file");
+        close(fd);
+        if (invokeProgram(disassembler, parms, temp_template))
         {
-            // read file contents here
-            readFileToString(temp_filename, out);
-            unlink(temp_filename);
+            readFileToString(temp_template, out);
+            unlink(temp_template);
             return out.length() != 0;
         }
-        else
-            return false;
+        unlink(temp_template);
+        return false;
     }
     else
         return false;
@@ -109,16 +109,19 @@ bool getDisassemblyForSymbol(hsa_agent_t agent, const std::string& fileName,
     parms.push_back("--disassemble-symbols=" + symbolName);
     parms.push_back(fileName);
 
-    char temp_filename[L_tmpnam];
-    if (tmpnam(temp_filename) == nullptr)
-        throw std::runtime_error("Failed to generate temporary filename");
+    char temp_template[] = "/tmp/kdb_dis_XXXXXX";
+    int fd = mkstemp(temp_template);
+    if (fd < 0)
+        throw std::runtime_error("Failed to create temporary file");
+    close(fd);
 
-    if (invokeProgram(disassembler, parms, temp_filename))
+    if (invokeProgram(disassembler, parms, temp_template))
     {
-        readFileToString(temp_filename, out);
-        unlink(temp_filename);
+        readFileToString(temp_template, out);
+        unlink(temp_template);
         return out.length() != 0;
     }
+    unlink(temp_template);
     return false;
 }
 

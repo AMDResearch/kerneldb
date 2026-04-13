@@ -254,6 +254,9 @@ private:
     };
     /// Lazy-loaded kernels: canonical name -> entry. Filled by addFile(..., lazy=true).
     std::map<std::string, LazyKernelEntry> lazy_kernels_;
+    /// Kernels currently being loaded — prevents concurrent disassembly of the same kernel.
+    std::set<std::string> loading_kernels_;
+    std::condition_variable_any loading_cv_;
     std::shared_mutex mutex_;
 };
 
