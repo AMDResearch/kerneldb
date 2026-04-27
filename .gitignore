@@ -5,3 +5,4 @@ _codeql_detected_source_root
 *.pyc
 *.so*
 *.egg-info/
+.untracked/
