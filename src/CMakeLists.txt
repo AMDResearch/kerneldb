@@ -65,6 +65,7 @@ target_link_libraries(
     dwarf
     elf
 )
+target_link_options(${TARGET_LIB} PRIVATE -Wl,--as-needed)
 # Install the kernelDB library and public headers
 file(GLOB_RECURSE KERNELDB_INCLUDE_FILES "include/*.h")
 set_target_properties(${TARGET_LIB} PROPERTIES PUBLIC_HEADER "${KERNELDB_INCLUDE_FILES}")
