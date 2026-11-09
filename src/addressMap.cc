@@ -344,6 +344,15 @@ bool buildDwarfAddressMap(const char* filename, size_t offset, size_t hsaco_leng
                     continue;
                 }
 
+                // An end_sequence row marks the first address *after* a
+                // sequence; the next function's first row often has the same
+                // address. Recording it attributed the start of that function to
+                // the previous function's last line (and the same-address check
+                // below then dropped the real row).
+                Dwarf_Bool end_sequence = 0;
+                if (dwarf_lineendsequence(linebuf[i], &end_sequence, &err) == DW_DLV_OK && end_sequence)
+                    continue;
+
                 // Skip if address is zero or same as previous (avoid duplicates)
                 if (addr == 0 || addr == prev_addr) {
                     prev_addr = addr;
